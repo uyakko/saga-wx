@@ -1,274 +1,892 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="ja">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>사가현 방재 & 고해상도 레이더 포털</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <style>
-        #map { height: 800px; width: 100%; border-radius: 1rem; z-index: 10; }
-        
-        /* 기상 마커 (기존) */
-        .weather-card-marker { background: rgba(255,255,255,0.95); border: 2px solid #3b82f6; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 4px; transition: transform 0.2s; }
-        .weather-card-marker:hover { transform: scale(1.1); z-index: 800 !important; }
-        .wind-arrow { display: inline-block; font-size: 14px; color: #3b82f6; line-height: 1; }
-        
-        /* CCTV 마커 (신규) */
-        .cctv-marker { background: #1e293b; color: white; border: 2px solid #ef4444; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 8px rgba(0,0,0,0.3); font-size: 16px; cursor: pointer; transition: all 0.2s; animation: pulse-border 2s infinite; }
-        .cctv-marker:hover { background: #ef4444; transform: scale(1.15); z-index: 1000 !important; }
-        @keyframes pulse-border { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 70% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>佐賀県 防災情報ダッシュボード</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Hiragino Sans', 'Meiryo', sans-serif; background: #f0f4f8; color: #1a202c; }
 
-        /* 팝업 커스터마이징 */
-        .leaflet-popup-content-wrapper { border-radius: 12px; padding: 0; overflow: hidden; }
-        .leaflet-popup-content { margin: 0; width: 340px !important; }
-    </style>
+/* Header */
+.header {
+  background: linear-gradient(135deg, #1e40af, #3b82f6);
+  color: white; padding: 12px 24px;
+  display: flex; align-items: center; justify-content: space-between;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+.header h1 { font-size: 1.4rem; font-weight: 700; }
+.header .subtitle { font-size: 0.8rem; opacity: 0.85; }
+.header .update-info { text-align: right; font-size: 0.75rem; opacity: 0.9; }
+.header .update-info .time { font-size: 0.9rem; font-weight: 600; }
+
+/* Warning Banner */
+.warning-banner {
+  background: #fef3c7; border-bottom: 2px solid #f59e0b;
+  padding: 10px 24px; display: none;
+}
+.warning-banner.active { display: block; }
+.warning-banner.alert { background: #fee2e2; border-color: #ef4444; }
+.warning-item {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-right: 16px; font-size: 0.85rem; font-weight: 600;
+}
+.warning-badge {
+  padding: 2px 8px; border-radius: 4px; color: white; font-size: 0.75rem;
+}
+.badge-warning { background: #f59e0b; }
+.badge-alert { background: #ef4444; }
+.badge-special { background: #7c3aed; }
+.badge-clear { background: #10b981; }
+
+/* Main Layout */
+.main-container {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  grid-template-rows: auto auto;
+  gap: 12px; padding: 12px;
+  max-height: calc(100vh - 100px);
+}
+
+/* Map */
+.map-section {
+  grid-row: 1 / 3;
+  background: white; border-radius: 12px;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.08);
+  overflow: hidden; min-height: 500px;
+  position: relative;
+}
+#map { width: 100%; height: 100%; min-height: 500px; }
+
+.map-controls {
+  position: absolute; top: 10px; right: 10px; z-index: 1000;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.map-btn {
+  background: white; border: 1px solid #d1d5db; border-radius: 8px;
+  padding: 6px 12px; font-size: 0.8rem; cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.1); transition: all 0.2s;
+}
+.map-btn:hover { background: #f3f4f6; }
+.map-btn.active { background: #3b82f6; color: white; border-color: #3b82f6; }
+
+/* Right Panel */
+.right-panel {
+  display: flex; flex-direction: column; gap: 12px;
+  max-height: calc(100vh - 120px); overflow-y: auto;
+}
+
+.panel-card {
+  background: white; border-radius: 12px;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.08);
+  overflow: hidden;
+}
+.panel-header {
+  padding: 10px 16px; font-weight: 700; font-size: 0.9rem;
+  display: flex; align-items: center; gap: 8px;
+  border-bottom: 1px solid #e5e7eb;
+}
+.panel-header .icon { font-size: 1.1rem; }
+.panel-body { padding: 12px 16px; }
+
+/* Forecast Tabs */
+.forecast-tabs {
+  display: flex; border-bottom: 1px solid #e5e7eb;
+}
+.forecast-tab {
+  flex: 1; padding: 8px; text-align: center; font-size: 0.8rem;
+  cursor: pointer; border-bottom: 2px solid transparent;
+  transition: all 0.2s; font-weight: 500;
+}
+.forecast-tab:hover { background: #f9fafb; }
+.forecast-tab.active { border-color: #3b82f6; color: #3b82f6; font-weight: 700; }
+
+/* Forecast Content */
+.forecast-content { display: none; }
+.forecast-content.active { display: block; }
+
+.forecast-row {
+  display: flex; align-items: center; padding: 6px 0;
+  border-bottom: 1px solid #f3f4f6; font-size: 0.8rem;
+}
+.forecast-row:last-child { border-bottom: none; }
+.forecast-time { width: 50px; font-weight: 600; color: #6b7280; }
+.forecast-icon { width: 32px; text-align: center; }
+.forecast-icon img { width: 28px; height: 28px; }
+.forecast-temp { width: 50px; text-align: center; font-weight: 700; }
+.forecast-temp .high { color: #ef4444; }
+.forecast-temp .low { color: #3b82f6; }
+.forecast-detail { flex: 1; color: #6b7280; font-size: 0.75rem; }
+.forecast-pop { width: 45px; text-align: center; color: #3b82f6; font-weight: 600; }
+
+/* Weekly Forecast */
+.weekly-row {
+  display: flex; align-items: center; padding: 8px 0;
+  border-bottom: 1px solid #f3f4f6;
+}
+.weekly-row:last-child { border-bottom: none; }
+.weekly-day { width: 60px; font-weight: 600; font-size: 0.85rem; }
+.weekly-day.sat { color: #3b82f6; }
+.weekly-day.sun { color: #ef4444; }
+.weekly-icon { width: 36px; text-align: center; }
+.weekly-icon img { width: 30px; height: 30px; }
+.weekly-temps { flex: 1; display: flex; align-items: center; gap: 4px; }
+.weekly-bar {
+  flex: 1; height: 6px; border-radius: 3px;
+  background: linear-gradient(90deg, #93c5fd, #fca5a5);
+  position: relative;
+}
+.weekly-pop { width: 40px; text-align: right; font-size: 0.8rem; color: #3b82f6; }
+
+/* Station Detail Popup */
+.station-popup { font-size: 0.85rem; line-height: 1.6; }
+.station-popup h3 { font-size: 1rem; margin-bottom: 4px; color: #1e40af; }
+.station-popup .data-row { display: flex; justify-content: space-between; }
+.station-popup .label { color: #6b7280; }
+.station-popup .value { font-weight: 700; }
+
+/* CCTV Section */
+.cctv-grid {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.cctv-item {
+  border-radius: 8px; overflow: hidden;
+  border: 1px solid #e5e7eb; cursor: pointer;
+  transition: all 0.2s;
+}
+.cctv-item:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.15); transform: translateY(-1px); }
+.cctv-thumb {
+  width: 100%; height: 80px; object-fit: cover;
+  background: #e5e7eb; display: flex; align-items: center;
+  justify-content: center; color: #9ca3af; font-size: 0.7rem;
+}
+.cctv-label {
+  padding: 4px 6px; font-size: 0.7rem; font-weight: 600;
+  background: #f9fafb; text-align: center;
+}
+
+/* Marker Styles */
+.station-marker {
+  background: white; border: 2px solid #3b82f6;
+  border-radius: 50%; width: 36px; height: 36px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.7rem; font-weight: 700; color: #1e40af;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+}
+.station-marker.rain { border-color: #3b82f6; background: #dbeafe; }
+.station-marker.hot { border-color: #ef4444; background: #fee2e2; }
+.station-marker.cold { border-color: #6366f1; background: #e0e7ff; }
+.station-marker.normal { border-color: #10b981; background: #d1fae5; }
+
+/* Loading */
+.loading {
+  display: flex; align-items: center; justify-content: center;
+  padding: 40px; color: #9ca3af;
+}
+.spinner {
+  width: 24px; height: 24px; border: 3px solid #e5e7eb;
+  border-top-color: #3b82f6; border-radius: 50%;
+  animation: spin 0.8s linear infinite; margin-right: 8px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Radar Legend */
+.radar-legend {
+  position: absolute; bottom: 20px; left: 10px; z-index: 1000;
+  background: rgba(255,255,255,0.95); border-radius: 8px;
+  padding: 8px 12px; font-size: 0.7rem;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+  display: none;
+}
+.radar-legend.active { display: block; }
+.legend-title { font-weight: 700; margin-bottom: 4px; }
+.legend-row { display: flex; align-items: center; gap: 4px; margin: 2px 0; }
+.legend-color { width: 20px; height: 10px; border-radius: 2px; }
+
+/* Footer */
+.footer {
+  text-align: center; padding: 8px; font-size: 0.7rem;
+  color: #9ca3af; background: white;
+  border-top: 1px solid #e5e7eb;
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .main-container {
+    grid-template-columns: 1fr;
+    grid-template-rows: 400px auto;
+  }
+  .map-section { grid-row: auto; min-height: 400px; }
+  .right-panel { max-height: none; }
+}
+
+/* Wind direction arrow */
+.wind-arrow { display: inline-block; font-size: 1rem; }
+</style>
 </head>
-<body class="bg-slate-50 text-slate-800">
+<body>
 
-    <div class="max-w-7xl mx-auto py-8 px-4">
-        <header class="mb-6 flex flex-col md:flex-row justify-between items-end border-b pb-4 border-slate-300">
-            <div>
-                <h1 class="text-3xl font-black text-slate-900 tracking-tight">사가현 실시간 방재 포털</h1>
-                <div class="flex items-center gap-2 mt-2">
-                    <span class="bg-blue-600 text-white text-[10px] font-bold px-2 py-1 rounded">JMA 공식 예보</span>
-                    <span class="bg-indigo-600 text-white text-[10px] font-bold px-2 py-1 rounded">JMA 250m 초정밀 레이더</span>
-                    <span class="bg-red-600 text-white text-[10px] font-bold px-2 py-1 rounded">CCTV 연동</span>
-                </div>
-            </div>
-        </header>
+<!-- Header -->
+<div class="header">
+  <div>
+    <h1>🛡️ 佐賀県 防災情報ダッシュボード</h1>
+    <div class="subtitle">気象庁データ（AMEDAS・予報・警報・レーダー）</div>
+  </div>
+  <div class="update-info">
+    <div>最終更新</div>
+    <div class="time" id="updateTime">読み込み中...</div>
+    <div><button onclick="refreshAll()" style="background:#ffffff30;border:none;color:white;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:0.75rem;">🔄 更新</button></div>
+  </div>
+</div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
-            <div class="lg:col-span-1 space-y-4">
-                <div id="warningCard" class="bg-white p-5 rounded-xl shadow-sm border-l-4 border-slate-300">
-                    <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">사가현 기상 특보</h2>
-                    <div id="warningContent" class="text-sm font-bold text-slate-700">로딩 중...</div>
-                </div>
+<!-- Warning Banner -->
+<div class="warning-banner" id="warningBanner"></div>
 
-                <div class="bg-slate-100 p-5 rounded-xl border border-slate-200 text-xs text-slate-600">
-                    <p class="font-bold mb-3 text-slate-700 text-sm">💡 JMA 초정밀 레이더 범례</p>
-                    <div class="flex items-center gap-2 mb-1"><span class="w-3 h-3 rounded bg-[#00ffff]"></span> 1~5mm/h (약한 비)</div>
-                    <div class="flex items-center gap-2 mb-1"><span class="w-3 h-3 rounded bg-[#ffff00]"></span> 20~30mm/h (강한 비)</div>
-                    <div class="flex items-center gap-2 mb-1"><span class="w-3 h-3 rounded bg-[#ff0000]"></span> 50~80mm/h (매우 강한 비)</div>
-                    <div class="flex items-center gap-2"><span class="w-3 h-3 rounded bg-[#b40068]"></span> 80mm/h 이상 (맹렬한 비)</div>
-                    
-                    <p class="font-bold text-slate-700 mt-5 mb-2">📷 하천/도로 CCTV</p>
-                    <p class="text-slate-500">지도 위 붉은색 카메라 마커를 클릭하면 주요 하천 및 도로의 실시간 상황을 확인할 수 있습니다.</p>
-                </div>
-            </div>
+<!-- Main -->
+<div class="main-container">
+  <!-- Map -->
+  <div class="map-section">
+    <div id="map"></div>
+    <div class="map-controls">
+      <button class="map-btn active" id="btnRadar" onclick="toggleRadar()">🌧️ レーダー</button>
+      <button class="map-btn" id="btnTemp" onclick="toggleDisplay('temp')">🌡️ 気温</button>
+      <button class="map-btn" id="btnWind" onclick="toggleDisplay('wind')">💨 風速</button>
+      <button class="map-btn" id="btnRain" onclick="toggleDisplay('rain')">☔ 降水</button>
+    </div>
+    <div class="radar-legend" id="radarLegend">
+      <div class="legend-title">降水強度 (mm/h)</div>
+      <div class="legend-row"><div class="legend-color" style="background:#b0d0f0"></div> 1-5</div>
+      <div class="legend-row"><div class="legend-color" style="background:#3090e0"></div> 5-10</div>
+      <div class="legend-row"><div class="legend-color" style="background:#f0e030"></div> 10-20</div>
+      <div class="legend-row"><div class="legend-color" style="background:#f09000"></div> 20-30</div>
+      <div class="legend-row"><div class="legend-color" style="background:#e03020"></div> 30-50</div>
+      <div class="legend-row"><div class="legend-color" style="background:#b010a0"></div> 50-80</div>
+      <div class="legend-row"><div class="legend-color" style="background:#600060"></div> 80+</div>
+    </div>
+  </div>
 
-            <div class="lg:col-span-3">
-                <div class="bg-white p-2 rounded-2xl shadow-xl border border-slate-200 relative">
-                    <div id="map"></div>
-                </div>
-            </div>
-        </div>
+  <!-- Right Panel -->
+  <div class="right-panel">
+    <!-- Current Conditions -->
+    <div class="panel-card">
+      <div class="panel-header"><span class="icon">📊</span> 現在の気象状況</div>
+      <div class="panel-body" id="currentConditions">
+        <div class="loading"><div class="spinner"></div>データ読み込み中...</div>
+      </div>
     </div>
 
-    <script>
-        // 지도 초기화 (줌 레벨 상향)
-        const map = L.map('map').setView([33.2635, 130.1500], 11);
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { 
-            attribution: '© OpenStreetMap, © CARTO' 
-        }).addTo(map);
+    <!-- Forecast -->
+    <div class="panel-card">
+      <div class="panel-header"><span class="icon">📅</span> 天気予報</div>
+      <div class="forecast-tabs">
+        <div class="forecast-tab active" onclick="switchForecast('today')">今日・明日</div>
+        <div class="forecast-tab" onclick="switchForecast('weekly')">週間予報</div>
+      </div>
+      <div class="panel-body">
+        <div class="forecast-content active" id="forecastToday">
+          <div class="loading"><div class="spinner"></div>読み込み中...</div>
+        </div>
+        <div class="forecast-content" id="forecastWeekly">
+          <div class="loading"><div class="spinner"></div>読み込み中...</div>
+        </div>
+      </div>
+    </div>
 
-        let radarLayer = null;
+    <!-- Warnings -->
+    <div class="panel-card">
+      <div class="panel-header"><span class="icon">⚠️</span> 注意報・警報</div>
+      <div class="panel-body" id="warningPanel">
+        <div class="loading"><div class="spinner"></div>読み込み中...</div>
+      </div>
+    </div>
 
-        // 1. 사가현 시정촌 및 JMA 공식 예보 구역 코드
-        const sagaCities = [
-            { id: "사가시", lat: 33.2635, lon: 130.3009, jmaArea: "410010" },
-            { id: "가라쓰시", lat: 33.4549, lon: 129.9689, jmaArea: "410020" },
-            { id: "도스시", lat: 33.3781, lon: 130.5186, jmaArea: "410010" },
-            { id: "이마리시", lat: 33.2657, lon: 129.8804, jmaArea: "410020" },
-            { id: "다케오시", lat: 33.1956, lon: 130.0219, jmaArea: "410010" }
-        ];
+    <!-- CCTV -->
+    <div class="panel-card">
+      <div class="panel-header"><span class="icon">📹</span> ライブカメラ</div>
+      <div class="panel-body">
+        <div class="cctv-grid" id="cctvGrid"></div>
+      </div>
+    </div>
+  </div>
+</div>
 
-        // 2. 가상 오픈 CCTV 위치 (하천 및 도로 거점)
-        const cctvCameras = [
-            { id: "가세가와 강 수위 감시소", loc: "사가시", lat: 33.2844, lon: 130.2605, type: "river" },
-            { id: "마쓰우라 강 철교", loc: "가라쓰시", lat: 33.4371, lon: 129.9881, type: "river" },
-            { id: "국도 34호선 교차로", loc: "다케오시", lat: 33.1936, lon: 130.0249, type: "road" },
-            { id: "지쿠고 강 범람 경보소", loc: "도스시", lat: 33.3601, lon: 130.5286, type: "river" }
-        ];
+<!-- Footer -->
+<div class="footer">
+  データ提供: 気象庁 (JMA) | 国土交通省 | 佐賀県 | ※ 本サイトは防災情報の参考としてご利用ください
+</div>
 
-        // JMA 날씨 코드를 이모지로 변환
-        function getJmaIcon(code) {
-            const c = parseInt(code);
-            if (c < 200) return "☀️"; if (c < 300) return "☁️"; if (c < 400) return "☔"; if (c < 500) return "⛄"; return "☁️";
+<script>
+// ============================================================
+// CONFIG
+// ============================================================
+const SAGA_CENTER = [33.26, 130.10];
+const SAGA_OFFICE_CODE = '410000';
+
+// 佐賀県内 AMEDAS 観測所 (85xxx = 佐賀県)
+const SAGA_STATIONS = {
+  '85142': { name: '佐賀', lat: 33.265, lon: 130.305, type: 'A' },
+  '85033': { name: '唐津', lat: 33.458, lon: 129.955, type: 'C' },
+  '85116': { name: '伊万里', lat: 33.267, lon: 129.878, type: 'C' },
+  '85161': { name: '嬉野', lat: 33.117, lon: 129.995, type: 'C' },
+  '85166': { name: '白石', lat: 33.183, lon: 130.148, type: 'C' },
+  '85176': { name: '川副', lat: 33.148, lon: 130.302, type: 'C' },
+  '85046': { name: '北山', lat: 33.413, lon: 130.220, type: 'C' },
+};
+
+// 警報コード名マッピング
+const WARNING_NAMES = {
+  '02': '暴風雪警報', '03': '大雨警報', '04': '洪水警報', '05': '暴風警報',
+  '06': '大雪警報', '07': '波浪警報', '08': '高潮警報',
+  '10': '大雨特別警報', '11': '暴風特別警報', '12': '暴風雪特別警報',
+  '13': '大雪特別警報', '14': '波浪特別警報', '15': '高潮特別警報',
+  '16': '雷注意報', '17': '強風注意報', '18': '風雪注意報',
+  '19': '大雨注意報', '20': '大雪注意報', '21': '波浪注意報',
+  '22': '高潮注意報', '23': '濃霧注意報', '24': '雷注意報',
+  '25': '乾燥注意報', '26': 'なだれ注意報', '27': '着氷注意報',
+  '28': '着雪注意報', '29': '融雪注意報', '30': '霜注意報',
+  '31': '低温注意報', '32': '洪水注意報',
+  '33': '特別警報（その他）'
+};
+
+// 風向き
+const WIND_DIR = ['北','北北東','北東','東北東','東','東南東','南東','南南東',
+                  '南','南南西','南西','西南西','西','西北西','北西','北北西'];
+const WIND_ARROWS = ['↓','↙','←','↖','↑','↗','→','↘',
+                     '↓','↙','←','↖','↑','↗','→','↘'];
+
+// 市町村コード -> 名前
+const MUNICIPALITIES = {
+  '4120100':'佐賀市','4120200':'唐津市','4120300':'鳥栖市','4120400':'多久市',
+  '4120500':'伊万里市','4120600':'武雄市','4120700':'鹿島市','4120800':'小城市',
+  '4120900':'嬉野市','4121000':'神埼市','4132700':'吉野ヶ里町','4134100':'基山町',
+  '4134500':'上峰町','4134600':'みやき町','4138700':'玄海町','4140100':'有田町',
+  '4142300':'大町町','4142400':'江北町','4142500':'白石町','4144100':'太良町'
+};
+
+// CCTV リスト (公開ライブカメラ)
+const CCTV_LIST = [
+  { name: '嘉瀬川（佐賀市）', url: 'https://www.river.go.jp/kawabou/ipCamera?eCd=8909700001&sCd=2', lat: 33.26, lon: 130.28, type: '河川' },
+  { name: '六角川（武雄市）', url: 'https://www.river.go.jp/kawabou/ipCamera?eCd=8909400001&sCd=2', lat: 33.19, lon: 130.02, type: '河川' },
+  { name: '松浦川（唐津市）', url: 'https://www.river.go.jp/kawabou/ipCamera?eCd=8909100001&sCd=2', lat: 33.45, lon: 129.97, type: '河川' },
+  { name: '佐賀国道34号', url: 'https://www2.saga-r.jp/livecam/', lat: 33.25, lon: 130.30, type: '道路' },
+  { name: '唐津バイパス', url: 'https://www2.saga-r.jp/livecam/', lat: 33.44, lon: 129.96, type: '道路' },
+  { name: '佐賀県庁前', url: 'https://www2.saga-r.jp/livecam/', lat: 33.25, lon: 130.30, type: '道路' },
+];
+
+// ============================================================
+// GLOBALS
+// ============================================================
+let map, radarLayer, stationMarkers = [], currentDisplay = 'temp';
+let radarVisible = true;
+let amedasData = {}, forecastData = null, warningData = null;
+
+// ============================================================
+// MAP INIT
+// ============================================================
+function initMap() {
+  map = L.map('map', {
+    center: SAGA_CENTER,
+    zoom: 10,
+    zoomControl: false
+  });
+
+  // Light base map
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap',
+    maxZoom: 18,
+    opacity: 0.9
+  }).addTo(map);
+
+  L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+  // 佐賀県境界 (簡易)
+  const sagaBounds = [
+    [33.55, 129.75], [33.58, 130.00], [33.50, 130.20],
+    [33.45, 130.45], [33.35, 130.55], [33.20, 130.55],
+    [33.05, 130.45], [33.00, 130.20], [33.05, 129.95],
+    [33.10, 129.80], [33.25, 129.73], [33.40, 129.75],
+    [33.55, 129.75]
+  ];
+  L.polyline(sagaBounds, { color: '#1e40af', weight: 2, opacity: 0.5, dashArray: '5,5' }).addTo(map);
+
+  // CCTV マーカー
+  CCTV_LIST.forEach(cam => {
+    const icon = L.divIcon({
+      html: `<div style="background:#7c3aed;color:white;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:0.7rem;box-shadow:0 1px 4px rgba(0,0,0,0.3);">📹</div>`,
+      className: '', iconSize: [24, 24], iconAnchor: [12, 12]
+    });
+    L.marker([cam.lat, cam.lon], { icon })
+      .bindPopup(`<b>${cam.name}</b><br><span style="color:#6b7280">${cam.type}カメラ</span><br><a href="${cam.url}" target="_blank" style="color:#3b82f6">カメラを見る →</a>`)
+      .addTo(map);
+  });
+}
+
+// ============================================================
+// RADAR LAYER
+// ============================================================
+async function loadRadar() {
+  try {
+    const resp = await fetch('https://www.jma.go.jp/bosai/jmatile/data/nowc/targetTimes_N1.json');
+    const times = await resp.json();
+    if (!times.length) return;
+
+    const latest = times[0];
+    const basetime = latest.basetime;
+    const validtime = latest.validtime;
+
+    if (radarLayer) map.removeLayer(radarLayer);
+
+    radarLayer = L.tileLayer(
+      `https://www.jma.go.jp/bosai/jmatile/data/nowc/${basetime}/none/${validtime}/surf/hrpns/{z}/{x}/{y}.png`,
+      { opacity: 0.6, maxZoom: 14, minZoom: 4 }
+    );
+
+    if (radarVisible) {
+      radarLayer.addTo(map);
+      document.getElementById('radarLegend').classList.add('active');
+    }
+  } catch (e) {
+    console.error('Radar load error:', e);
+  }
+}
+
+function toggleRadar() {
+  radarVisible = !radarVisible;
+  const btn = document.getElementById('btnRadar');
+  const legend = document.getElementById('radarLegend');
+  if (radarVisible && radarLayer) {
+    radarLayer.addTo(map);
+    btn.classList.add('active');
+    legend.classList.add('active');
+  } else if (radarLayer) {
+    map.removeLayer(radarLayer);
+    btn.classList.remove('active');
+    legend.classList.remove('active');
+  }
+}
+
+// ============================================================
+// AMEDAS DATA
+// ============================================================
+async function loadAmedas() {
+  try {
+    // 最新時刻取得
+    const timeResp = await fetch('https://www.jma.go.jp/bosai/amedas/data/latest_time.txt');
+    const latestTime = (await timeResp.text()).trim();
+
+    // 時刻パース (10分単位に丸める)
+    const dt = new Date(latestTime);
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth()+1).padStart(2,'0');
+    const d = String(dt.getDate()).padStart(2,'0');
+    const h = String(dt.getHours()).padStart(2,'0');
+    const min = String(Math.floor(dt.getMinutes()/10)*10).padStart(2,'0');
+    const timeStr = `${y}${m}${d}${h}${min}00`;
+
+    // 3時間ごとのデータ (map)
+    const hourStr = `${y}${m}${d}${h}0000`;
+    const dataResp = await fetch(`https://www.jma.go.jp/bosai/amedas/data/map/${hourStr}.json`);
+
+    if (!dataResp.ok) {
+      // 1時間前を試す
+      const prevH = String((parseInt(h) - 1 + 24) % 24).padStart(2,'0');
+      const prevStr = `${y}${m}${d}${prevH}0000`;
+      const dataResp2 = await fetch(`https://www.jma.go.jp/bosai/amedas/data/map/${prevStr}.json`);
+      if (dataResp2.ok) amedasData = await dataResp2.json();
+    } else {
+      amedasData = await dataResp.json();
+    }
+
+    document.getElementById('updateTime').textContent =
+      `${y}/${m}/${d} ${h}:${min} JST`;
+
+    updateStationMarkers();
+    updateCurrentConditions();
+  } catch (e) {
+    console.error('AMEDAS error:', e);
+    document.getElementById('currentConditions').innerHTML =
+      '<div style="color:#ef4444;padding:8px;">データの取得に失敗しました</div>';
+  }
+}
+
+function getStationColor(temp) {
+  if (temp === null || temp === undefined) return 'normal';
+  if (temp >= 30) return 'hot';
+  if (temp <= 5) return 'cold';
+  return 'normal';
+}
+
+function getWindDirText(dir) {
+  if (dir === null || dir === undefined || dir === 0) return '静穏';
+  return WIND_DIR[(dir - 1) % 16] || '不明';
+}
+
+function getWindArrow(dir) {
+  if (dir === null || dir === undefined || dir === 0) return '○';
+  return WIND_ARROWS[(dir - 1) % 16] || '?';
+}
+
+function updateStationMarkers() {
+  // 既存マーカー削除
+  stationMarkers.forEach(m => map.removeLayer(m));
+  stationMarkers = [];
+
+  Object.entries(SAGA_STATIONS).forEach(([id, station]) => {
+    const data = amedasData[id];
+    if (!data) return;
+
+    const temp = data.temp ? data.temp[0] : null;
+    const wind = data.wind ? data.wind[0] : null;
+    const rain1h = data.precipitation1h ? data.precipitation1h[0] : null;
+    const windDir = data.windDirection ? data.windDirection[0] : null;
+    const humidity = data.humidity ? data.humidity[0] : null;
+
+    let displayVal, colorClass;
+    if (currentDisplay === 'temp') {
+      displayVal = temp !== null ? `${temp}°` : '--';
+      colorClass = getStationColor(temp);
+    } else if (currentDisplay === 'wind') {
+      displayVal = wind !== null ? `${wind}` : '--';
+      colorClass = wind >= 10 ? 'hot' : wind >= 5 ? 'rain' : 'normal';
+    } else {
+      displayVal = rain1h !== null ? (rain1h > 0 ? `${rain1h}` : '0') : '--';
+      colorClass = rain1h > 10 ? 'hot' : rain1h > 0 ? 'rain' : 'normal';
+    }
+
+    const icon = L.divIcon({
+      html: `<div class="station-marker ${colorClass}">${displayVal}</div>`,
+      className: '', iconSize: [36, 36], iconAnchor: [18, 18]
+    });
+
+    const popupContent = `
+      <div class="station-popup">
+        <h3>📍 ${station.name}</h3>
+        <div class="data-row"><span class="label">気温</span><span class="value">${temp !== null ? temp + '℃' : '--'}</span></div>
+        <div class="data-row"><span class="label">湿度</span><span class="value">${humidity !== null ? humidity + '%' : '--'}</span></div>
+        <div class="data-row"><span class="label">風速</span><span class="value">${wind !== null ? wind + 'm/s' : '--'}</span></div>
+        <div class="data-row"><span class="label">風向</span><span class="value">${getWindDirText(windDir)} ${getWindArrow(windDir)}</span></div>
+        <div class="data-row"><span class="label">1時間降水量</span><span class="value">${rain1h !== null ? rain1h + 'mm' : '--'}</span></div>
+      </div>
+    `;
+
+    const marker = L.marker([station.lat, station.lon], { icon })
+      .bindPopup(popupContent)
+      .addTo(map);
+    stationMarkers.push(marker);
+  });
+}
+
+function toggleDisplay(type) {
+  currentDisplay = type;
+  document.querySelectorAll('.map-btn').forEach(b => {
+    if (b.id !== 'btnRadar') b.classList.remove('active');
+  });
+  document.getElementById('btn' + type.charAt(0).toUpperCase() + type.slice(1)).classList.add('active');
+  updateStationMarkers();
+}
+
+function updateCurrentConditions() {
+  const sagaData = amedasData['85142'];
+  if (!sagaData) {
+    document.getElementById('currentConditions').innerHTML =
+      '<div style="color:#9ca3af">佐賀のデータがありません</div>';
+    return;
+  }
+
+  let html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">';
+
+  const items = [
+    { label: '🌡️ 気温', value: sagaData.temp ? sagaData.temp[0] + '℃' : '--' },
+    { label: '💧 湿度', value: sagaData.humidity ? sagaData.humidity[0] + '%' : '--' },
+    { label: '💨 風速', value: sagaData.wind ? sagaData.wind[0] + 'm/s' : '--' },
+    { label: '🧭 風向', value: sagaData.windDirection ? getWindDirText(sagaData.windDirection[0]) : '--' },
+    { label: '☔ 1h降水', value: sagaData.precipitation1h ? sagaData.precipitation1h[0] + 'mm' : '--' },
+    { label: '📊 気圧', value: sagaData.normalPressure ? sagaData.normalPressure[0] + 'hPa' : '--' },
+  ];
+
+  items.forEach(item => {
+    html += `<div style="background:#f9fafb;padding:8px;border-radius:8px;">
+      <div style="font-size:0.7rem;color:#6b7280;">${item.label}</div>
+      <div style="font-size:1.1rem;font-weight:700;">${item.value}</div>
+    </div>`;
+  });
+
+  html += '</div>';
+
+  // 全観測所サマリー
+  html += '<div style="margin-top:12px;font-size:0.75rem;color:#6b7280;border-top:1px solid #e5e7eb;padding-top:8px;">';
+  html += '<b>県内観測所</b>';
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;margin-top:4px;">';
+  Object.entries(SAGA_STATIONS).forEach(([id, st]) => {
+    const d = amedasData[id];
+    const t = d && d.temp ? d.temp[0] : '--';
+    const r = d && d.precipitation1h ? d.precipitation1h[0] : 0;
+    const rainIcon = r > 0 ? '🌧' : '';
+    html += `<div style="background:#f0f4f8;padding:3px 6px;border-radius:4px;font-size:0.7rem;">
+      ${st.name} <b>${t}℃</b> ${rainIcon}</div>`;
+  });
+  html += '</div></div>';
+
+  document.getElementById('currentConditions').innerHTML = html;
+}
+
+// ============================================================
+// FORECAST
+// ============================================================
+async function loadForecast() {
+  try {
+    const resp = await fetch(`https://www.jma.go.jp/bosai/forecast/data/forecast/${SAGA_OFFICE_CODE}.json`);
+    forecastData = await resp.json();
+    renderTodayForecast();
+    renderWeeklyForecast();
+  } catch (e) {
+    console.error('Forecast error:', e);
+  }
+}
+
+function renderTodayForecast() {
+  if (!forecastData || !forecastData[0]) return;
+  const ts = forecastData[0];
+  let html = '';
+
+  // 天気予報 (南部・北部)
+  const weatherTS = ts.timeSeries[0];
+  const popTS = ts.timeSeries[1];
+  const tempTS = ts.timeSeries[2];
+
+  weatherTS.areas.forEach(area => {
+    const areaName = area.area.name;
+    html += `<div style="margin-bottom:12px;">`;
+    html += `<div style="font-weight:700;font-size:0.85rem;margin-bottom:6px;color:#1e40af;">📍 ${areaName}</div>`;
+
+    weatherTS.timeDefines.forEach((time, i) => {
+      const dt = new Date(time);
+      const dayStr = ['日','月','火','水','木','金','土'][dt.getDay()];
+      const dateStr = `${dt.getMonth()+1}/${dt.getDate()}(${dayStr})`;
+      const code = area.weatherCodes ? area.weatherCodes[i] : '';
+      const weather = area.weathers ? area.weathers[i] : '';
+      const wind = area.winds ? area.winds[i] : '';
+
+      // 降水確率
+      let pop = '--';
+      if (popTS && popTS.areas) {
+        const popArea = popTS.areas.find(a => a.area.code === area.area.code);
+        if (popArea && popArea.pops && popArea.pops[i] !== undefined) {
+          pop = popArea.pops[i] || '--';
         }
+      }
 
-        let jmaForecastData = null;
+      html += `<div class="forecast-row">
+        <div class="forecast-time">${dateStr}</div>
+        <div class="forecast-icon"><img src="https://www.jma.go.jp/bosai/forecast/img/${code}.svg" alt="" onerror="this.style.display='none'"></div>
+        <div class="forecast-detail">${weather ? weather.substring(0, 20) : ''}</div>
+        <div class="forecast-pop">${pop !== '--' ? pop + '%' : '--'}</div>
+      </div>`;
+    });
+    html += '</div>';
+  });
 
-        // JMA 초정밀 레이더 (고해상도 강수 나우캐스트) 로딩
-        async function fetchJmaHighResRadar() {
-            try {
-                // JMA에서 가장 최신 레이더 타임스탬프 가져오기
-                const timeRes = await fetch('https://www.jma.go.jp/bosai/jmatile/data/nowc/targetTimes_N1.json');
-                const times = await timeRes.json();
-                
-                if (times && times.length > 0) {
-                    const basetime = times[0].basetime;
-                    const validtime = times[0].validtime;
-                    
-                    // JMA hrpns(고해상도) 타일 URL 
-                    // maxNativeZoom을 10으로 설정하여, 지도를 더 확대해도 10레벨 이미지가 깨지지 않고 늘어나도록 처리
-                    const jmaRadarUrl = `https://www.jma.go.jp/bosai/jmatile/data/nowc/${basetime}/none/${validtime}/surf/hrpns/{z}/{x}/{y}.png`;
+  // 気温予報
+  if (tempTS && tempTS.areas) {
+    html += '<div style="border-top:1px solid #e5e7eb;padding-top:8px;margin-top:4px;">';
+    html += '<div style="font-weight:700;font-size:0.8rem;margin-bottom:4px;">🌡️ 気温予報</div>';
+    tempTS.areas.forEach(area => {
+      const temps = area.temps || [];
+      html += `<div style="font-size:0.8rem;margin:2px 0;">
+        ${area.area.name}: <span class="low" style="color:#3b82f6">${temps[0] || '--'}℃</span> / <span class="high" style="color:#ef4444">${temps[1] || '--'}℃</span>
+      </div>`;
+    });
+    html += '</div>';
+  }
 
-                    if (radarLayer) map.removeLayer(radarLayer);
-                    
-                    radarLayer = L.tileLayer(jmaRadarUrl, {
-                        opacity: 0.65,
-                        zIndex: 10,
-                        maxNativeZoom: 10, 
-                        maxZoom: 18,
-                        attribution: '기상청(JMA) 고해상도 레이더'
-                    }).addTo(map);
-                }
-            } catch(e) { console.error("JMA 초정밀 레이더 로드 실패", e); }
+  document.getElementById('forecastToday').innerHTML = html || '<div style="color:#9ca3af">予報データなし</div>';
+}
+
+function renderWeeklyForecast() {
+  if (!forecastData || !forecastData[1]) return;
+  const ts = forecastData[1];
+  const weatherTS = ts.timeSeries[0];
+  const tempTS = ts.timeSeries[1];
+
+  let html = '';
+  const dayNames = ['日','月','火','水','木','金','土'];
+
+  if (weatherTS && weatherTS.areas && weatherTS.areas[0]) {
+    const area = weatherTS.areas[0];
+    const tempArea = tempTS && tempTS.areas ? tempTS.areas[0] : null;
+
+    weatherTS.timeDefines.forEach((time, i) => {
+      const dt = new Date(time);
+      const dayStr = dayNames[dt.getDay()];
+      const dateStr = `${dt.getMonth()+1}/${dt.getDate()}`;
+      const dayClass = dt.getDay() === 0 ? 'sun' : dt.getDay() === 6 ? 'sat' : '';
+      const code = area.weatherCodes ? area.weatherCodes[i] : '';
+      const pop = area.pops ? area.pops[i] : '';
+      const reliability = area.reliabilities ? area.reliabilities[i] : '';
+
+      let tempMin = '--', tempMax = '--';
+      if (tempArea) {
+        tempMin = tempArea.tempsMin ? (tempArea.tempsMin[i] || '--') : '--';
+        tempMax = tempArea.tempsMax ? (tempArea.tempsMax[i] || '--') : '--';
+      }
+
+      html += `<div class="weekly-row">
+        <div class="weekly-day ${dayClass}">${dateStr}<br><small>${dayStr}</small></div>
+        <div class="weekly-icon"><img src="https://www.jma.go.jp/bosai/forecast/img/${code}.svg" alt="" onerror="this.style.display='none'" style="width:28px;height:28px;"></div>
+        <div class="weekly-temps">
+          <span style="color:#3b82f6;font-size:0.8rem;width:30px;text-align:right;">${tempMin}°</span>
+          <div class="weekly-bar"></div>
+          <span style="color:#ef4444;font-size:0.8rem;width:30px;">${tempMax}°</span>
+        </div>
+        <div class="weekly-pop">${pop ? pop + '%' : '--'}</div>
+      </div>`;
+    });
+  }
+
+  document.getElementById('forecastWeekly').innerHTML = html || '<div style="color:#9ca3af">週間予報データなし</div>';
+}
+
+function switchForecast(tab) {
+  document.querySelectorAll('.forecast-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.forecast-content').forEach(c => c.classList.remove('active'));
+
+  if (tab === 'today') {
+    document.querySelectorAll('.forecast-tab')[0].classList.add('active');
+    document.getElementById('forecastToday').classList.add('active');
+  } else {
+    document.querySelectorAll('.forecast-tab')[1].classList.add('active');
+    document.getElementById('forecastWeekly').classList.add('active');
+  }
+}
+
+// ============================================================
+// WARNINGS
+// ============================================================
+async function loadWarnings() {
+  try {
+    const resp = await fetch(`https://www.jma.go.jp/bosai/warning/data/warning/${SAGA_OFFICE_CODE}.json`);
+    warningData = await resp.json();
+    renderWarnings();
+  } catch (e) {
+    console.error('Warning error:', e);
+  }
+}
+
+function renderWarnings() {
+  if (!warningData) return;
+
+  const banner = document.getElementById('warningBanner');
+  const panel = document.getElementById('warningPanel');
+  let bannerHtml = '';
+  let panelHtml = '';
+  let hasActive = false;
+  let hasAlert = false;
+
+  // 市町村別の警報 (areaTypes[1])
+  if (warningData.areaTypes && warningData.areaTypes.length > 1) {
+    const municipalWarnings = warningData.areaTypes[1];
+    const activeWarnings = {};
+
+    municipalWarnings.areas.forEach(area => {
+      const areaName = MUNICIPALITIES[area.code] || area.code;
+      area.warnings.forEach(w => {
+        if (w.status === '発表' || w.status === '継続' || w.status === '特別警報') {
+          hasActive = true;
+          const wName = WARNING_NAMES[w.code] || `警報(${w.code})`;
+          if (!activeWarnings[wName]) activeWarnings[wName] = [];
+          activeWarnings[wName].push(areaName);
+
+          if (w.code <= '15') hasAlert = true;
         }
+      });
+    });
 
-        async function fetchJmaData() {
-            // 특보 로딩
-            try {
-                const warnRes = await fetch('https://www.jma.go.jp/bosai/warning/data/warning/410000.json');
-                const warnData = await warnRes.json();
-                const warningCodes = { '03': '호우경보', '04': '홍수경보', '05': '폭풍경보', '10': '호우주의보', '13': '강풍주의보' };
-                let activeWarnings = [];
-                if(warnData.areaTypes && warnData.areaTypes.length > 1) {
-                    warnData.areaTypes[1].areas.forEach(area => {
-                        area.warnings.forEach(w => {
-                            if (w.status !== "해제" && w.status !== "발표없음" && warningCodes[w.code]) {
-                                if(!activeWarnings.includes(warningCodes[w.code])) activeWarnings.push(warningCodes[w.code]);
-                            }
-                        });
-                    });
-                }
-                const warnCard = document.getElementById('warningCard');
-                const warnContent = document.getElementById('warningContent');
-                if (activeWarnings.length > 0) {
-                    warnCard.className = "bg-red-50 p-5 rounded-xl shadow-sm border-l-4 border-red-500";
-                    warnContent.innerHTML = `<ul class="list-disc pl-4 text-red-700">${activeWarnings.map(w => `<li>${w} 발령 중</li>`).join('')}</ul>`;
-                } else {
-                    warnCard.className = "bg-green-50 p-5 rounded-xl shadow-sm border-l-4 border-green-500";
-                    warnContent.innerHTML = `<span class="text-green-700">현재 발효 중인 특보가 없습니다.</span>`;
-                }
-            } catch(e) {}
+    if (hasActive) {
+      Object.entries(activeWarnings).forEach(([wName, areas]) => {
+        const isAlert = wName.includes('警報');
+        const isSpecial = wName.includes('特別');
+        const badgeClass = isSpecial ? 'badge-special' : isAlert ? 'badge-alert' : 'badge-warning';
+        bannerHtml += `<span class="warning-item"><span class="warning-badge ${badgeClass}">${wName}</span>${areas.join('、')}</span>`;
+      });
 
-            // 공식 주간 예보 로딩
-            try {
-                const jmaRes = await fetch('https://www.jma.go.jp/bosai/forecast/data/forecast/410000.json');
-                jmaForecastData = await jmaRes.json();
-            } catch(e) {}
+      panelHtml = '<div>';
+      Object.entries(activeWarnings).forEach(([wName, areas]) => {
+        const isAlert = wName.includes('警報');
+        const isSpecial = wName.includes('特別');
+        const color = isSpecial ? '#7c3aed' : isAlert ? '#ef4444' : '#f59e0b';
+        panelHtml += `<div style="margin-bottom:8px;padding:8px;background:${color}10;border-left:3px solid ${color};border-radius:4px;">
+          <div style="font-weight:700;color:${color};font-size:0.85rem;">${wName}</div>
+          <div style="font-size:0.75rem;color:#6b7280;margin-top:2px;">${areas.join('、')}</div>
+        </div>`;
+      });
+      panelHtml += '</div>';
+    }
+  }
 
-            fetchJmaHighResRadar();
-            renderWeatherMarkers();
-            renderCCTVMarkers();
-        }
+  if (!hasActive) {
+    panelHtml = `<div style="text-align:center;padding:16px;">
+      <div style="font-size:2rem;">✅</div>
+      <div style="color:#10b981;font-weight:700;margin-top:4px;">現在、発表中の警報・注意報はありません</div>
+      <div style="font-size:0.75rem;color:#9ca3af;margin-top:4px;">発表時刻: ${warningData.reportDatetime ? new Date(warningData.reportDatetime).toLocaleString('ja-JP') : '--'}</div>
+    </div>`;
+    banner.classList.remove('active');
+  } else {
+    banner.innerHTML = bannerHtml;
+    banner.classList.add('active');
+    if (hasAlert) banner.classList.add('alert');
+  }
 
-        // 3. CCTV 마커 렌더링
-        function renderCCTVMarkers() {
-            cctvCameras.forEach(cam => {
-                const iconHtml = `<div class="cctv-marker" style="width: 32px; height: 32px;">📷</div>`;
-                const icon = L.divIcon({ className: '', html: iconHtml, iconSize: [32, 32], iconAnchor: [16, 16] });
+  panel.innerHTML = panelHtml;
+}
 
-                // (시뮬레이션) 하천/도로별 샘플 이미지
-                const imgUrl = cam.type === 'river' 
-                    ? 'https://images.unsplash.com/photo-1444858291040-58f756a3bdd6?auto=format&fit=crop&w=400&q=80' // 하천 샘플
-                    : 'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?auto=format&fit=crop&w=400&q=80'; // 도로 샘플
+// ============================================================
+// CCTV
+// ============================================================
+function renderCCTV() {
+  const grid = document.getElementById('cctvGrid');
+  let html = '';
 
-                const popupHtml = `
-                    <div class="bg-slate-900 rounded-lg overflow-hidden">
-                        <div class="bg-red-600 px-3 py-2 flex justify-between items-center text-white">
-                            <h3 class="font-bold text-sm">🔴 LIVE | ${cam.id}</h3>
-                            <span class="text-[9px] bg-white text-red-600 px-1.5 py-0.5 rounded animate-pulse">REC</span>
-                        </div>
-                        <div class="relative">
-                            <img src="${imgUrl}" alt="CCTV" class="w-full h-[180px] object-cover opacity-80 brightness-75">
-                            <div class="absolute inset-0 border-[3px] border-black/20 pointer-events-none"></div>
-                            <div class="absolute bottom-2 left-2 text-[10px] text-white font-mono bg-black/60 px-2 py-0.5 rounded">
-                                ${new Date().toLocaleString()} | ${cam.loc}
-                            </div>
-                        </div>
-                        <div class="p-2 text-center text-[10px] text-slate-400">
-                            ※ 본 영상은 기능 시연을 위한 오픈 소스 대체 이미지입니다. 실제 연동 시 MLIT API 스트림으로 교체됩니다.
-                        </div>
-                    </div>
-                `;
+  CCTV_LIST.forEach(cam => {
+    const typeColor = cam.type === '河川' ? '#3b82f6' : '#10b981';
+    html += `<div class="cctv-item" onclick="window.open('${cam.url}','_blank')">
+      <div class="cctv-thumb" style="background:linear-gradient(135deg,${typeColor}20,${typeColor}05);display:flex;flex-direction:column;align-items:center;justify-content:center;">
+        <div style="font-size:1.5rem;">${cam.type === '河川' ? '🌊' : '🛣️'}</div>
+        <div style="font-size:0.65rem;color:${typeColor};margin-top:2px;">${cam.type}カメラ</div>
+      </div>
+      <div class="cctv-label">${cam.name}</div>
+    </div>`;
+  });
 
-                L.marker([cam.lat, cam.lon], { icon, zIndexOffset: 1000 })
-                    .addTo(map)
-                    .bindPopup(popupHtml, { maxWidth: 320 });
-            });
-        }
+  grid.innerHTML = html;
+}
 
-        // 4. 기상 마커 렌더링
-        async function renderWeatherMarkers() {
-            const lats = sagaCities.map(c => c.lat).join(',');
-            const lons = sagaCities.map(c => c.lon).join(',');
-            const curRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&current_weather=true&timezone=Asia%2FTokyo`);
-            const curData = await curRes.json();
+// ============================================================
+// REFRESH
+// ============================================================
+async function refreshAll() {
+  document.getElementById('updateTime').textContent = '更新中...';
+  await Promise.all([
+    loadAmedas(),
+    loadForecast(),
+    loadWarnings(),
+    loadRadar()
+  ]);
+}
 
-            curData.forEach((data, index) => {
-                const city = sagaCities[index];
-                const curr = data.current_weather;
-                const areaCode = city.jmaArea;
+// ============================================================
+// INIT
+// ============================================================
+document.addEventListener('DOMContentLoaded', async () => {
+  initMap();
+  renderCCTV();
+  await refreshAll();
 
-                let weeklyHtml = '<div class="text-sm text-slate-500 text-center py-4">데이터 대기 중...</div>';
-                if (jmaForecastData && jmaForecastData[1]) {
-                    const weekData = jmaForecastData[1];
-                    const dates = weekData.timeSeries[0].timeDefines;
-                    const weatherAreaIdx = weekData.timeSeries[0].areas.findIndex(a => a.area.code === areaCode);
-                    const tempAreaIdx = weekData.timeSeries[1].areas.findIndex(a => a.area.code === areaCode);
-
-                    if (weatherAreaIdx !== -1 && tempAreaIdx !== -1) {
-                        const wCodes = weekData.timeSeries[0].areas[weatherAreaIdx].weatherCodes;
-                        const tMins = weekData.timeSeries[1].areas[tempAreaIdx].tempsMin;
-                        const tMaxs = weekData.timeSeries[1].areas[tempAreaIdx].tempsMax;
-
-                        weeklyHtml = '';
-                        for(let i=0; i<dates.length; i++) {
-                            const dateObj = new Date(dates[i]);
-                            const dateStr = `${dateObj.getMonth()+1}/${dateObj.getDate()}`;
-                            const dayStr = ['일','월','화','수','목','금','토'][dateObj.getDay()];
-                            const minT = tMins[i] || "-"; const maxT = tMaxs[i] || "-";
-
-                            weeklyHtml += `
-                                <div class="flex justify-between items-center text-xs py-1.5 border-b border-slate-200 last:border-0">
-                                    <div class="w-10"><span class="text-[9px] text-slate-400 block">${dateStr}</span><span class="font-bold">${dayStr}</span></div>
-                                    <div class="text-lg">${getJmaIcon(wCodes[i])}</div>
-                                    <div class="w-20 text-right"><span class="font-black">${maxT}°</span> / <span class="text-blue-600 font-bold">${minT}°</span></div>
-                                </div>
-                            `;
-                        }
-                    }
-                }
-
-                const markerHtml = `
-                    <div class="weather-card-marker" style="width: 50px; height: 60px;">
-                        <div class="text-[9px] font-bold text-slate-400 leading-tight">${city.id.replace('시','')}</div>
-                        <div class="text-base font-black text-slate-800 leading-tight mt-0.5">${Math.round(curr.temperature)}°</div>
-                        <div class="flex items-center gap-0.5 mt-1">
-                            <span class="wind-arrow" style="transform: rotate(${curr.winddirection}deg);">⬆️</span>
-                        </div>
-                    </div>
-                `;
-
-                const popupHtml = `
-                    <div class="bg-white">
-                        <div class="bg-slate-800 p-3 text-white"><h3 class="text-lg font-black">${city.id}</h3></div>
-                        <div class="p-4 bg-slate-50"><h4 class="text-[10px] font-black text-slate-500 uppercase mb-2">JMA 공식 주간 예보</h4><div class="bg-white p-2 rounded border border-slate-200">${weeklyHtml}</div></div>
-                    </div>
-                `;
-
-                const icon = L.divIcon({ className: '', html: markerHtml, iconSize: [50, 60], iconAnchor: [25, 30] });
-                L.marker([city.lat, city.lon], { icon, zIndexOffset: 500 }).addTo(map).bindPopup(popupHtml);
-            });
-        }
-
-        fetchJmaData();
-        // 5분마다 데이터 갱신
-        setInterval(fetchJmaData, 300000);
-    </script>
+  // 5分ごとに自動更新
+  setInterval(refreshAll, 5 * 60 * 1000);
+});
+</script>
 </body>
 </html>
