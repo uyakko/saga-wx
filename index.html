@@ -3,227 +3,157 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>사가현 방재 포털 (Saga Bosai) v2</title>
+    <title>사가현 기상 맵 & 모델 비교</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
-        #map { height: 750px; width: 100%; border-radius: 0.75rem; z-index: 10; }
-        /* 스크롤바 숨기기 (디자인 용도) */
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        #map { height: 700px; width: 100%; border-radius: 1rem; z-index: 10; }
+        
+        /* 지도 위 온도 숫자 마커의 디자인 */
+        .temp-marker {
+            background-color: rgba(255, 255, 255, 0.95);
+            border: 3px solid #3b82f6; /* 파란색 테두리 */
+            border-radius: 50%;
+            font-weight: 900;
+            font-size: 14px;
+            color: #1e3a8a;
+            text-align: center;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+            /* 중앙 정렬을 위한 설정 */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        /* 팝업 테이블 스타일 */
+        .model-table th, .model-table td { padding: 4px 8px; text-align: center; border-bottom: 1px solid #e5e7eb; }
+        .model-table th { background-color: #f3f4f6; font-size: 11px; color: #6b7280; }
+        .model-table td { font-size: 12px; font-weight: bold; }
     </style>
 </head>
-<body class="bg-slate-50 text-slate-800">
+<body class="bg-slate-100 text-slate-800 p-4 md:p-8">
 
-    <div class="max-w-6xl mx-auto py-8 px-4">
-        <header class="mb-6 flex flex-col md:flex-row justify-between items-end border-b pb-4 border-slate-300">
+    <div class="max-w-6xl mx-auto">
+        <header class="mb-6 flex justify-between items-end">
             <div>
-                <h1 class="text-3xl font-black text-slate-900 tracking-tight">사가현 실시간 방재 대시보드</h1>
-                <p class="text-slate-500 font-medium mt-1">기상 레이더 · 특보 · 지진 종합 모니터링</p>
+                <h1 class="text-3xl font-black text-slate-900 tracking-tight">사가현 실시간 기온 맵</h1>
+                <p class="text-slate-500 font-medium mt-1">숫자 클릭 시 글로벌 기상 모델 예보 비교 (JMA vs ECMWF vs GFS)</p>
             </div>
-            <div id="updateTime" class="text-sm text-slate-400 font-mono mt-2 md:mt-0">데이터 갱신 중...</div>
         </header>
 
-        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
-            <div class="lg:col-span-1 space-y-4 h-[750px] overflow-y-auto no-scrollbar pb-10">
-                
-                <div id="warningCard" class="bg-white p-5 rounded-xl shadow-sm border-l-4 border-slate-300">
-                    <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">사가현 기상 특보</h2>
-                    <div id="warningContent" class="text-sm font-bold text-slate-700">
-                        데이터를 불러오는 중...
-                    </div>
-                </div>
-
-                <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-                    <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex justify-between">
-                        <span>최근 지진 정보 (일본 전역)</span>
-                        <span class="text-red-500 animate-pulse">● Live</span>
-                    </h2>
-                    <div id="quakeContent">
-                        <p class="text-sm text-slate-500 mb-1" id="quakeTime">-</p>
-                        <p class="text-lg font-black text-slate-800 mb-2" id="quakeEpicenter">로딩 중...</p>
-                        <div class="flex gap-4">
-                            <div>
-                                <p class="text-[10px] font-bold text-slate-400 uppercase">최대 진도</p>
-                                <p class="text-2xl font-black text-red-600" id="quakeIntensity">-</p>
-                            </div>
-                            <div>
-                                <p class="text-[10px] font-bold text-slate-400 uppercase">규모(Mag)</p>
-                                <p class="text-2xl font-black text-slate-700" id="quakeMag">-</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-                    <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">사가시 현재 기상</h2>
-                    <div class="grid grid-cols-2 gap-4">
-                        <div>
-                            <p class="text-[10px] font-bold text-slate-400 uppercase mb-1">기온</p>
-                            <p class="text-2xl font-black"><span id="currentTemp">-</span><span class="text-sm text-slate-400 ml-1">°C</span></p>
-                        </div>
-                        <div>
-                            <p class="text-[10px] font-bold text-slate-400 uppercase mb-1">풍속</p>
-                            <p class="text-2xl font-black"><span id="currentWind">-</span><span class="text-sm text-slate-400 ml-1">km/h</span></p>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="bg-slate-100 p-4 rounded-xl border border-slate-200 text-xs text-slate-600">
-                    <p class="font-bold mb-2 text-slate-700">💡 레이더 색상 안내</p>
-                    <div class="flex items-center gap-2 mb-1"><span class="w-3 h-3 rounded-full bg-blue-400"></span> 약한 비 (1~5mm/h)</div>
-                    <div class="flex items-center gap-2 mb-1"><span class="w-3 h-3 rounded-full bg-yellow-400"></span> 강한 비 (10~20mm/h)</div>
-                    <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-red-500"></span> 매우 강한 비 (30mm/h 이상)</div>
-                </div>
-            </div>
-
-            <div class="lg:col-span-3">
-                <div id="map" class="shadow-lg border border-slate-200"></div>
-            </div>
+        <div class="bg-white p-2 rounded-2xl shadow-xl border border-slate-200">
+            <div id="map"></div>
         </div>
     </div>
 
     <script>
-        // --- 1. 지도 초기화 (사가현청 중심) ---
-        const sagaLat = 33.2635;
-        const sagaLon = 130.3009;
-        const map = L.map('map').setView([sagaLat, sagaLon], 10);
-
+        // 1. 지도 초기화
+        const map = L.map('map').setView([33.2635, 130.1500], 11);
         L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
             attribution: '© OpenStreetMap contributors, © CARTO',
             maxZoom: 18
         }).addTo(map);
 
-        L.marker([sagaLat, sagaLon]).addTo(map)
-            .bindPopup('<b>사가현 (Saga)</b><br>기준 좌표')
-            .openPopup();
+        // 2. 사가현 주요 시정촌 10곳 좌표 배열
+        const sagaCities = [
+            { id: "사가시", lat: 33.2635, lon: 130.3009 },
+            { id: "가라쓰시", lat: 33.4549, lon: 129.9689 },
+            { id: "도스시", lat: 33.3781, lon: 130.5186 },
+            { id: "이마리시", lat: 33.2657, lon: 129.8804 },
+            { id: "다케오시", lat: 33.1956, lon: 130.0219 },
+            { id: "가시마시", lat: 33.1130, lon: 130.0988 },
+            { id: "오기시", lat: 33.2847, lon: 130.2036 },
+            { id: "우레시노시", lat: 33.0990, lon: 129.9800 },
+            { id: "간자키시", lat: 33.3101, lon: 130.3688 },
+            { id: "다쿠시", lat: 33.2828, lon: 130.1118 }
+        ];
 
-        // 공통 시간 갱신
-        function updateTimestamp() {
-            document.getElementById('updateTime').textContent = `최종 갱신: ${new Date().toLocaleTimeString()}`;
-        }
+        // 3. Open-Meteo API 다중 호출 및 모델 비교
+        async function fetchTemperatures() {
+            const lats = sagaCities.map(c => c.lat).join(',');
+            const lons = sagaCities.map(c => c.lon).join(',');
 
-        // --- 2. JMA 기상 특보 (사가현 코드: 410000) ---
-        async function fetchJmaWarnings() {
+            // current_weather: 현재 날씨
+            // daily: 일일 예보 (최고기온, 강수량)
+            // models: 일본(JMA), 유럽(ECMWF), 미국(GFS)
+            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&current_weather=true&daily=temperature_2m_max,precipitation_sum&models=jma_seamless,ecmwf_ifs,gfs_seamless&timezone=Asia%2FTokyo`;
+
             try {
-                // 일본 기상청 사가현 특보 JSON
-                const url = 'https://www.jma.go.jp/bosai/warning/data/warning/410000.json';
                 const response = await fetch(url);
-                const data = await response.json();
-                
-                const warningCard = document.getElementById('warningCard');
-                const warningContent = document.getElementById('warningContent');
-                
-                // JMA 특보 코드 간략 매핑 (자주 쓰이는 것 위주)
-                const warningCodes = {
-                    '03': '호우경보', '04': '홍수경보', '05': '폭풍경보', '08': '해일주의보',
-                    '10': '호우주의보', '13': '강풍주의보', '14': '풍랑주의보', '15': '홍수주의보', '16': '대설주의보'
-                };
+                const data = await response.json(); // 10개 지역의 데이터가 배열로 들어옴
 
-                let activeWarnings = [];
-
-                // 데이터 파싱 (간략화: 사가현 전체 기준 특보 추출)
-                if(data.areaTypes && data.areaTypes.length > 1) {
-                    const areas = data.areaTypes[1].areas;
-                    areas.forEach(area => {
-                        area.warnings.forEach(w => {
-                            if (w.status !== "해제" && w.status !== "발표없음" && warningCodes[w.code]) {
-                                if(!activeWarnings.includes(warningCodes[w.code])) {
-                                    activeWarnings.push(warningCodes[w.code]);
-                                }
-                            }
-                        });
-                    });
-                }
-
-                if (activeWarnings.length > 0) {
-                    warningCard.classList.remove('border-slate-300');
-                    warningCard.classList.add('border-red-500', 'bg-red-50');
-                    warningContent.innerHTML = `<ul class="list-disc pl-4 text-red-700">${activeWarnings.map(w => `<li>${w} 발령 중</li>`).join('')}</ul>`;
-                } else {
-                    warningCard.classList.remove('border-slate-300');
-                    warningCard.classList.add('border-green-500', 'bg-green-50');
-                    warningContent.innerHTML = `<span class="text-green-700">현재 발효 중인 특보가 없습니다.</span>`;
-                }
-            } catch (error) {
-                document.getElementById('warningContent').textContent = "특보 데이터 로딩 실패";
-            }
-        }
-
-        // --- 3. JMA 지진 정보 ---
-        async function fetchJmaQuake() {
-            try {
-                const url = 'https://www.jma.go.jp/bosai/quake/data/list.json';
-                const response = await fetch(url);
-                const data = await response.json();
-
-                if (data && data.length > 0) {
-                    const latest = data[0]; // 가장 최근 지진
+                data.forEach((locData, index) => {
+                    const city = sagaCities[index];
+                    const currentTemp = Math.round(locData.current_weather.temperature);
                     
-                    // 시간 포맷 변환 (예: 2024-04-05T10:20:00+09:00 -> 2024/04/05 10:20)
-                    const dateObj = new Date(latest.at);
-                    const timeStr = dateObj.toLocaleString();
+                    // 오늘 기준 각 모델의 예보값 추출
+                    const daily = locData.daily;
+                    
+                    // JMA (일본) 예보
+                    const jmaTemp = daily.temperature_2m_max_jma_seamless ? Math.round(daily.temperature_2m_max_jma_seamless[0]) : '-';
+                    const jmaRain = daily.precipitation_sum_jma_seamless ? daily.precipitation_sum_jma_seamless[0] : 0;
+                    
+                    // ECMWF (유럽) 예보
+                    const ecmwfTemp = daily.temperature_2m_max_ecmwf_ifs ? Math.round(daily.temperature_2m_max_ecmwf_ifs[0]) : '-';
+                    const ecmwfRain = daily.precipitation_sum_ecmwf_ifs ? daily.precipitation_sum_ecmwf_ifs[0] : 0;
 
-                    document.getElementById('quakeTime').textContent = `발생일시: ${timeStr}`;
-                    document.getElementById('quakeEpicenter').textContent = latest.anm || '진원지 정보 없음';
-                    document.getElementById('quakeIntensity').textContent = latest.maxi || '-';
-                    document.getElementById('quakeMag').textContent = latest.mag || '-';
-                }
+                    // GFS (미국) 예보
+                    const gfsTemp = daily.temperature_2m_max_gfs_seamless ? Math.round(daily.temperature_2m_max_gfs_seamless[0]) : '-';
+                    const gfsRain = daily.precipitation_sum_gfs_seamless ? daily.precipitation_sum_gfs_seamless[0] : 0;
+
+                    // Leaflet DivIcon 생성 (지도 위에 숫자로 그림)
+                    const tempIcon = L.divIcon({
+                        className: 'custom-div-icon',
+                        html: `<div class="temp-marker" style="width: 44px; height: 44px;">${currentTemp}°</div>`,
+                        iconSize: [44, 44],
+                        iconAnchor: [22, 22] // 중앙 정렬
+                    });
+
+                    // 팝업 내용 구성 (예보 비교 테이블)
+                    const popupContent = `
+                        <div style="min-width: 220px;">
+                            <h3 class="text-base font-black text-slate-800 mb-1 border-b pb-1">${city.id} (현재 ${currentTemp}°C)</h3>
+                            <p class="text-xs text-slate-500 mb-2">오늘의 최고기온 / 강수량 모델 비교</p>
+                            <table class="w-full model-table mb-1">
+                                <tr>
+                                    <th>모델</th>
+                                    <th>최고기온</th>
+                                    <th>강수량</th>
+                                </tr>
+                                <tr>
+                                    <td class="text-blue-700">🇯🇵 JMA</td>
+                                    <td>${jmaTemp}°C</td>
+                                    <td>${jmaRain} mm</td>
+                                </tr>
+                                <tr>
+                                    <td class="text-emerald-700">🇪🇺 ECMWF</td>
+                                    <td>${ecmwfTemp}°C</td>
+                                    <td>${ecmwfRain} mm</td>
+                                </tr>
+                                <tr>
+                                    <td class="text-orange-700">🇺🇸 GFS</td>
+                                    <td>${gfsTemp}°C</td>
+                                    <td>${gfsRain} mm</td>
+                                </tr>
+                            </table>
+                        </div>
+                    `;
+
+                    // 지도에 마커 추가 및 팝업 연결
+                    L.marker([city.lat, city.lon], { icon: tempIcon })
+                        .addTo(map)
+                        .bindPopup(popupContent);
+                });
+
             } catch (error) {
-                document.getElementById('quakeEpicenter').textContent = "지진 데이터 로딩 실패";
+                console.error("기상 데이터 로드 실패", error);
             }
         }
 
-        // --- 4. 기상 레이더 (RainViewer) ---
-        async function fetchRadar() {
-            try {
-                const response = await fetch('https://api.rainviewer.com/public/weather-maps.json');
-                const data = await response.json();
-                const radarPast = data.radar.past;
-                
-                if (radarPast.length > 0) {
-                    const latestRadar = radarPast[radarPast.length - 1].path;
-                    // color=2 (기본 컬러), smooth=1 (부드럽게)
-                    L.tileLayer(`https://tilecache.rainviewer.com${latestRadar}/256/{z}/{x}/{y}/2/1_1.png`, {
-                        opacity: 0.65,
-                        attribution: 'Radar © RainViewer'
-                    }).addTo(map);
-                }
-            } catch (error) {
-                console.error("레이더 데이터 로드 실패", error);
-            }
-        }
-
-        // --- 5. 현재 기온/풍속 (Open-Meteo) ---
-        async function fetchWeather() {
-            try {
-                const url = `https://api.open-meteo.com/v1/forecast?latitude=${sagaLat}&longitude=${sagaLon}&current_weather=true&timezone=Asia%2FTokyo`;
-                const response = await fetch(url);
-                const data = await response.json();
-
-                if (data.current_weather) {
-                    document.getElementById('currentTemp').textContent = data.current_weather.temperature;
-                    document.getElementById('currentWind').textContent = data.current_weather.windspeed;
-                }
-            } catch (error) {
-                console.error("날씨 데이터 로드 실패", error);
-            }
-        }
-
-        // 초기 실행
-        function initDashboard() {
-            fetchWeather();
-            fetchRadar();
-            fetchJmaWarnings();
-            fetchJmaQuake();
-            updateTimestamp();
-        }
-
-        initDashboard();
-
-        // 5분(300,000ms)마다 데이터 갱신
-        setInterval(initDashboard, 300000);
+        fetchTemperatures();
+        // 10분마다 갱신
+        setInterval(fetchTemperatures, 600000);
     </script>
 </body>
 </html>
