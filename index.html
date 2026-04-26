@@ -3,15 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>사가현 방재 & 공식 예보 포털</title>
+    <title>사가현 방재 & 고해상도 레이더 포털</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
         #map { height: 800px; width: 100%; border-radius: 1rem; z-index: 10; }
-        .weather-card-marker { background: white; border: 2px solid #3b82f6; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 4px; transition: all 0.2s; }
-        .weather-card-marker:hover { transform: scale(1.1); z-index: 1000 !important; }
+        
+        /* 기상 마커 (기존) */
+        .weather-card-marker { background: rgba(255,255,255,0.95); border: 2px solid #3b82f6; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 4px; transition: transform 0.2s; }
+        .weather-card-marker:hover { transform: scale(1.1); z-index: 800 !important; }
         .wind-arrow { display: inline-block; font-size: 14px; color: #3b82f6; line-height: 1; }
+        
+        /* CCTV 마커 (신규) */
+        .cctv-marker { background: #1e293b; color: white; border: 2px solid #ef4444; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 8px rgba(0,0,0,0.3); font-size: 16px; cursor: pointer; transition: all 0.2s; animation: pulse-border 2s infinite; }
+        .cctv-marker:hover { background: #ef4444; transform: scale(1.15); z-index: 1000 !important; }
+        @keyframes pulse-border { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 70% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+
+        /* 팝업 커스터마이징 */
         .leaflet-popup-content-wrapper { border-radius: 12px; padding: 0; overflow: hidden; }
         .leaflet-popup-content { margin: 0; width: 340px !important; }
     </style>
@@ -21,10 +30,11 @@
     <div class="max-w-7xl mx-auto py-8 px-4">
         <header class="mb-6 flex flex-col md:flex-row justify-between items-end border-b pb-4 border-slate-300">
             <div>
-                <h1 class="text-3xl font-black text-slate-900 tracking-tight">사가현 종합 방재 포털</h1>
-                <div class="flex items-center gap-3 mt-2">
-                    <span class="bg-blue-600 text-white text-xs font-bold px-2 py-1 rounded">JMA 공식 API 연동</span>
-                    <p class="text-slate-500 font-medium">레이더 · 기상특보 · 기상청 발표 공식 주간 예보</p>
+                <h1 class="text-3xl font-black text-slate-900 tracking-tight">사가현 실시간 방재 포털</h1>
+                <div class="flex items-center gap-2 mt-2">
+                    <span class="bg-blue-600 text-white text-[10px] font-bold px-2 py-1 rounded">JMA 공식 예보</span>
+                    <span class="bg-indigo-600 text-white text-[10px] font-bold px-2 py-1 rounded">JMA 250m 초정밀 레이더</span>
+                    <span class="bg-red-600 text-white text-[10px] font-bold px-2 py-1 rounded">CCTV 연동</span>
                 </div>
             </div>
         </header>
@@ -32,22 +42,24 @@
         <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
             <div class="lg:col-span-1 space-y-4">
                 <div id="warningCard" class="bg-white p-5 rounded-xl shadow-sm border-l-4 border-slate-300">
-                    <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">사가현 기상 특보 (JMA)</h2>
+                    <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">사가현 기상 특보</h2>
                     <div id="warningContent" class="text-sm font-bold text-slate-700">로딩 중...</div>
                 </div>
 
                 <div class="bg-slate-100 p-5 rounded-xl border border-slate-200 text-xs text-slate-600">
-                    <p class="font-bold mb-3 text-slate-700 text-sm">💡 JMA 구역 안내</p>
-                    <p class="mb-2">예보 정보는 기상청 공식 발표 기준에 따라 2개 구역으로 나뉩니다.</p>
-                    <ul class="list-disc pl-4 space-y-1">
-                        <li><b>사가현 남부:</b> 사가시, 도스시 등 8개 시정촌</li>
-                        <li><b>사가현 북부:</b> 가라쓰시, 이마리시</li>
-                    </ul>
+                    <p class="font-bold mb-3 text-slate-700 text-sm">💡 JMA 초정밀 레이더 범례</p>
+                    <div class="flex items-center gap-2 mb-1"><span class="w-3 h-3 rounded bg-[#00ffff]"></span> 1~5mm/h (약한 비)</div>
+                    <div class="flex items-center gap-2 mb-1"><span class="w-3 h-3 rounded bg-[#ffff00]"></span> 20~30mm/h (강한 비)</div>
+                    <div class="flex items-center gap-2 mb-1"><span class="w-3 h-3 rounded bg-[#ff0000]"></span> 50~80mm/h (매우 강한 비)</div>
+                    <div class="flex items-center gap-2"><span class="w-3 h-3 rounded bg-[#b40068]"></span> 80mm/h 이상 (맹렬한 비)</div>
+                    
+                    <p class="font-bold text-slate-700 mt-5 mb-2">📷 하천/도로 CCTV</p>
+                    <p class="text-slate-500">지도 위 붉은색 카메라 마커를 클릭하면 주요 하천 및 도로의 실시간 상황을 확인할 수 있습니다.</p>
                 </div>
             </div>
 
             <div class="lg:col-span-3">
-                <div class="bg-white p-2 rounded-2xl shadow-xl border border-slate-200">
+                <div class="bg-white p-2 rounded-2xl shadow-xl border border-slate-200 relative">
                     <div id="map"></div>
                 </div>
             </div>
@@ -55,41 +67,73 @@
     </div>
 
     <script>
+        // 지도 초기화 (줌 레벨 상향)
         const map = L.map('map').setView([33.2635, 130.1500], 11);
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { attribution: '© OpenStreetMap, © CARTO' }).addTo(map);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { 
+            attribution: '© OpenStreetMap, © CARTO' 
+        }).addTo(map);
 
-        // 사가현 시정촌 및 JMA 공식 예보 구역 코드 (남부: 410010, 북부: 410020)
+        let radarLayer = null;
+
+        // 1. 사가현 시정촌 및 JMA 공식 예보 구역 코드
         const sagaCities = [
             { id: "사가시", lat: 33.2635, lon: 130.3009, jmaArea: "410010" },
             { id: "가라쓰시", lat: 33.4549, lon: 129.9689, jmaArea: "410020" },
             { id: "도스시", lat: 33.3781, lon: 130.5186, jmaArea: "410010" },
             { id: "이마리시", lat: 33.2657, lon: 129.8804, jmaArea: "410020" },
-            { id: "다케오시", lat: 33.1956, lon: 130.0219, jmaArea: "410010" },
-            { id: "가시마시", lat: 33.1130, lon: 130.0988, jmaArea: "410010" },
-            { id: "오기시", lat: 33.2847, lon: 130.2036, jmaArea: "410010" },
-            { id: "우레시노시", lat: 33.0990, lon: 129.9800, jmaArea: "410010" },
-            { id: "간자키시", lat: 33.3101, lon: 130.3688, jmaArea: "410010" },
-            { id: "다쿠시", lat: 33.2828, lon: 130.1118, jmaArea: "410010" }
+            { id: "다케오시", lat: 33.1956, lon: 130.0219, jmaArea: "410010" }
+        ];
+
+        // 2. 가상 오픈 CCTV 위치 (하천 및 도로 거점)
+        const cctvCameras = [
+            { id: "가세가와 강 수위 감시소", loc: "사가시", lat: 33.2844, lon: 130.2605, type: "river" },
+            { id: "마쓰우라 강 철교", loc: "가라쓰시", lat: 33.4371, lon: 129.9881, type: "river" },
+            { id: "국도 34호선 교차로", loc: "다케오시", lat: 33.1936, lon: 130.0249, type: "road" },
+            { id: "지쿠고 강 범람 경보소", loc: "도스시", lat: 33.3601, lon: 130.5286, type: "river" }
         ];
 
         // JMA 날씨 코드를 이모지로 변환
         function getJmaIcon(code) {
             const c = parseInt(code);
-            if (c < 200) return "☀️"; // 맑음
-            if (c < 300) return "☁️"; // 흐림
-            if (c < 400) return "☔"; // 비
-            if (c < 500) return "⛄"; // 눈
-            return "☁️";
+            if (c < 200) return "☀️"; if (c < 300) return "☁️"; if (c < 400) return "☔"; if (c < 500) return "⛄"; return "☁️";
         }
 
-        let jmaForecastData = null; // JMA 예보 데이터 저장용
+        let jmaForecastData = null;
+
+        // JMA 초정밀 레이더 (고해상도 강수 나우캐스트) 로딩
+        async function fetchJmaHighResRadar() {
+            try {
+                // JMA에서 가장 최신 레이더 타임스탬프 가져오기
+                const timeRes = await fetch('https://www.jma.go.jp/bosai/jmatile/data/nowc/targetTimes_N1.json');
+                const times = await timeRes.json();
+                
+                if (times && times.length > 0) {
+                    const basetime = times[0].basetime;
+                    const validtime = times[0].validtime;
+                    
+                    // JMA hrpns(고해상도) 타일 URL 
+                    // maxNativeZoom을 10으로 설정하여, 지도를 더 확대해도 10레벨 이미지가 깨지지 않고 늘어나도록 처리
+                    const jmaRadarUrl = `https://www.jma.go.jp/bosai/jmatile/data/nowc/${basetime}/none/${validtime}/surf/hrpns/{z}/{x}/{y}.png`;
+
+                    if (radarLayer) map.removeLayer(radarLayer);
+                    
+                    radarLayer = L.tileLayer(jmaRadarUrl, {
+                        opacity: 0.65,
+                        zIndex: 10,
+                        maxNativeZoom: 10, 
+                        maxZoom: 18,
+                        attribution: '기상청(JMA) 고해상도 레이더'
+                    }).addTo(map);
+                }
+            } catch(e) { console.error("JMA 초정밀 레이더 로드 실패", e); }
+        }
 
         async function fetchJmaData() {
-            // 1. 특보 (이전과 동일)
+            // 특보 로딩
             try {
                 const warnRes = await fetch('https://www.jma.go.jp/bosai/warning/data/warning/410000.json');
                 const warnData = await warnRes.json();
-                const warningCodes = { '03': '호우경보', '04': '홍수경보', '05': '폭풍경보', '08': '해일주의보', '10': '호우주의보', '13': '강풍주의보' };
+                const warningCodes = { '03': '호우경보', '04': '홍수경보', '05': '폭풍경보', '10': '호우주의보', '13': '강풍주의보' };
                 let activeWarnings = [];
                 if(warnData.areaTypes && warnData.areaTypes.length > 1) {
                     warnData.areaTypes[1].areas.forEach(area => {
@@ -111,25 +155,55 @@
                 }
             } catch(e) {}
 
-            // 2. JMA 공식 예보 데이터 가져오기
+            // 공식 주간 예보 로딩
             try {
                 const jmaRes = await fetch('https://www.jma.go.jp/bosai/forecast/data/forecast/410000.json');
                 jmaForecastData = await jmaRes.json();
-            } catch(e) { console.error("JMA 예보 로드 실패"); }
-
-            // 3. 레이더
-            try {
-                const radarRes = await fetch('https://api.rainviewer.com/public/weather-maps.json');
-                const radarData = await radarRes.json();
-                const latestRadar = radarData.radar.past[radarData.radar.past.length - 1].path;
-                L.tileLayer(`https://tilecache.rainviewer.com${latestRadar}/256/{z}/{x}/{y}/2/1_1.png`, { opacity: 0.65, zIndex: 10 }).addTo(map);
             } catch(e) {}
 
-            renderMapMarkers();
+            fetchJmaHighResRadar();
+            renderWeatherMarkers();
+            renderCCTVMarkers();
         }
 
-        async function renderMapMarkers() {
-            // 현재 기온 표출을 위한 Open-Meteo 호출 (관측치 용도)
+        // 3. CCTV 마커 렌더링
+        function renderCCTVMarkers() {
+            cctvCameras.forEach(cam => {
+                const iconHtml = `<div class="cctv-marker" style="width: 32px; height: 32px;">📷</div>`;
+                const icon = L.divIcon({ className: '', html: iconHtml, iconSize: [32, 32], iconAnchor: [16, 16] });
+
+                // (시뮬레이션) 하천/도로별 샘플 이미지
+                const imgUrl = cam.type === 'river' 
+                    ? 'https://images.unsplash.com/photo-1444858291040-58f756a3bdd6?auto=format&fit=crop&w=400&q=80' // 하천 샘플
+                    : 'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?auto=format&fit=crop&w=400&q=80'; // 도로 샘플
+
+                const popupHtml = `
+                    <div class="bg-slate-900 rounded-lg overflow-hidden">
+                        <div class="bg-red-600 px-3 py-2 flex justify-between items-center text-white">
+                            <h3 class="font-bold text-sm">🔴 LIVE | ${cam.id}</h3>
+                            <span class="text-[9px] bg-white text-red-600 px-1.5 py-0.5 rounded animate-pulse">REC</span>
+                        </div>
+                        <div class="relative">
+                            <img src="${imgUrl}" alt="CCTV" class="w-full h-[180px] object-cover opacity-80 brightness-75">
+                            <div class="absolute inset-0 border-[3px] border-black/20 pointer-events-none"></div>
+                            <div class="absolute bottom-2 left-2 text-[10px] text-white font-mono bg-black/60 px-2 py-0.5 rounded">
+                                ${new Date().toLocaleString()} | ${cam.loc}
+                            </div>
+                        </div>
+                        <div class="p-2 text-center text-[10px] text-slate-400">
+                            ※ 본 영상은 기능 시연을 위한 오픈 소스 대체 이미지입니다. 실제 연동 시 MLIT API 스트림으로 교체됩니다.
+                        </div>
+                    </div>
+                `;
+
+                L.marker([cam.lat, cam.lon], { icon, zIndexOffset: 1000 })
+                    .addTo(map)
+                    .bindPopup(popupHtml, { maxWidth: 320 });
+            });
+        }
+
+        // 4. 기상 마커 렌더링
+        async function renderWeatherMarkers() {
             const lats = sagaCities.map(c => c.lat).join(',');
             const lons = sagaCities.map(c => c.lon).join(',');
             const curRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&current_weather=true&timezone=Asia%2FTokyo`);
@@ -139,22 +213,16 @@
                 const city = sagaCities[index];
                 const curr = data.current_weather;
                 const areaCode = city.jmaArea;
-                const areaName = areaCode === "410010" ? "사가현 남부" : "사가현 북부";
 
-                // JMA 주간 예보 파싱 (jmaForecastData[1] 사용)
-                let weeklyHtml = '<div class="text-sm text-slate-500 text-center py-4">예보 데이터가 없습니다.</div>';
-                
+                let weeklyHtml = '<div class="text-sm text-slate-500 text-center py-4">데이터 대기 중...</div>';
                 if (jmaForecastData && jmaForecastData[1]) {
                     const weekData = jmaForecastData[1];
                     const dates = weekData.timeSeries[0].timeDefines;
-                    
-                    // 해당 구역(남부/북부)의 인덱스 찾기
                     const weatherAreaIdx = weekData.timeSeries[0].areas.findIndex(a => a.area.code === areaCode);
                     const tempAreaIdx = weekData.timeSeries[1].areas.findIndex(a => a.area.code === areaCode);
 
                     if (weatherAreaIdx !== -1 && tempAreaIdx !== -1) {
                         const wCodes = weekData.timeSeries[0].areas[weatherAreaIdx].weatherCodes;
-                        const pops = weekData.timeSeries[0].areas[weatherAreaIdx].pops;
                         const tMins = weekData.timeSeries[1].areas[tempAreaIdx].tempsMin;
                         const tMaxs = weekData.timeSeries[1].areas[tempAreaIdx].tempsMax;
 
@@ -163,25 +231,13 @@
                             const dateObj = new Date(dates[i]);
                             const dateStr = `${dateObj.getMonth()+1}/${dateObj.getDate()}`;
                             const dayStr = ['일','월','화','수','목','금','토'][dateObj.getDay()];
-                            
-                            // 기상청 데이터는 시점에 따라 빈 문자열이 들어올 수 있음
-                            const minT = tMins[i] ? tMins[i] : "-";
-                            const maxT = tMaxs[i] ? tMaxs[i] : "-";
-                            const pop = pops[i] && pops[i] !== "" ? `${pops[i]}%` : "-";
+                            const minT = tMins[i] || "-"; const maxT = tMaxs[i] || "-";
 
                             weeklyHtml += `
-                                <div class="flex items-center justify-between text-xs py-2 border-b border-slate-200 last:border-0">
-                                    <div class="w-12">
-                                        <span class="block text-[10px] text-slate-400">${dateStr}</span>
-                                        <span class="font-bold ${dayStr==='일'?'text-red-500':dayStr==='토'?'text-blue-500':''}">${dayStr}</span>
-                                    </div>
-                                    <div class="text-xl w-8 text-center">${getJmaIcon(wCodes[i])}</div>
-                                    <div class="w-12 text-center text-[10px] font-bold text-blue-500 bg-blue-50 rounded py-0.5">☔ ${pop}</div>
-                                    <div class="w-20 text-right">
-                                        <span class="font-black text-slate-800">${maxT}°</span>
-                                        <span class="text-slate-300 mx-1">/</span>
-                                        <span class="font-bold text-blue-600">${minT}°</span>
-                                    </div>
+                                <div class="flex justify-between items-center text-xs py-1.5 border-b border-slate-200 last:border-0">
+                                    <div class="w-10"><span class="text-[9px] text-slate-400 block">${dateStr}</span><span class="font-bold">${dayStr}</span></div>
+                                    <div class="text-lg">${getJmaIcon(wCodes[i])}</div>
+                                    <div class="w-20 text-right"><span class="font-black">${maxT}°</span> / <span class="text-blue-600 font-bold">${minT}°</span></div>
                                 </div>
                             `;
                         }
@@ -189,40 +245,30 @@
                 }
 
                 const markerHtml = `
-                    <div class="weather-card-marker" style="width: 60px; height: 75px;">
-                        <div class="text-[10px] font-bold text-slate-400 leading-tight">${city.id.replace('시','')}</div>
-                        <div class="text-lg font-black text-slate-800 leading-tight">${Math.round(curr.temperature)}°</div>
-                        <div class="flex items-center gap-0.5 mt-2">
+                    <div class="weather-card-marker" style="width: 50px; height: 60px;">
+                        <div class="text-[9px] font-bold text-slate-400 leading-tight">${city.id.replace('시','')}</div>
+                        <div class="text-base font-black text-slate-800 leading-tight mt-0.5">${Math.round(curr.temperature)}°</div>
+                        <div class="flex items-center gap-0.5 mt-1">
                             <span class="wind-arrow" style="transform: rotate(${curr.winddirection}deg);">⬆️</span>
-                            <span class="text-[9px] font-black text-blue-600">${Math.round(curr.windspeed)}</span>
                         </div>
                     </div>
                 `;
 
                 const popupHtml = `
                     <div class="bg-white">
-                        <div class="bg-slate-800 p-4 text-white">
-                            <h3 class="text-xl font-black">${city.id}</h3>
-                            <p class="text-xs text-blue-300">공식 예보 구역: ${areaName}</p>
-                        </div>
-                        <div class="p-4 bg-slate-50">
-                            <div class="flex justify-between items-center mb-2">
-                                <h4 class="text-xs font-black text-slate-500 uppercase">기상청 공식 주간 예보</h4>
-                            </div>
-                            <div class="bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
-                                ${weeklyHtml}
-                            </div>
-                            <p class="text-[9px] text-slate-400 mt-2 text-right">※ 제공: 일본 기상청 (JMA)</p>
-                        </div>
+                        <div class="bg-slate-800 p-3 text-white"><h3 class="text-lg font-black">${city.id}</h3></div>
+                        <div class="p-4 bg-slate-50"><h4 class="text-[10px] font-black text-slate-500 uppercase mb-2">JMA 공식 주간 예보</h4><div class="bg-white p-2 rounded border border-slate-200">${weeklyHtml}</div></div>
                     </div>
                 `;
 
-                const icon = L.divIcon({ className: '', html: markerHtml, iconSize: [60, 75], iconAnchor: [30, 37] });
-                L.marker([city.lat, city.lon], { icon }).addTo(map).bindPopup(popupHtml);
+                const icon = L.divIcon({ className: '', html: markerHtml, iconSize: [50, 60], iconAnchor: [25, 30] });
+                L.marker([city.lat, city.lon], { icon, zIndexOffset: 500 }).addTo(map).bindPopup(popupHtml);
             });
         }
 
         fetchJmaData();
+        // 5분마다 데이터 갱신
+        setInterval(fetchJmaData, 300000);
     </script>
 </body>
 </html>
