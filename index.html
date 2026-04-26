@@ -3,53 +3,45 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>사가현 통합 기상 모니터링</title>
+    <title>사가현 상세 기상 예보 시스템</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
-        #map { height: 750px; width: 100%; border-radius: 1rem; z-index: 10; }
+        #map { height: 800px; width: 100%; border-radius: 1rem; z-index: 10; }
         
-        /* 통합 기상 마커 디자인 */
+        /* 지도 마커 디자인 */
         .weather-card-marker {
-            background: white;
-            border: 2px solid #cbd5e1;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 4px;
-            transition: all 0.2s;
+            background: white; border: 2px solid #3b82f6; border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.15); display: flex; flex-direction: column;
+            align-items: center; justify-content: center; padding: 4px; transition: all 0.2s;
         }
-        .weather-card-marker:hover { transform: scale(1.1); border-color: #3b82f6; z-index: 1000 !important; }
+        .weather-card-marker:hover { transform: scale(1.1); z-index: 1000 !important; }
 
-        /* 풍향 화살표 애니메이션 */
-        .wind-arrow {
-            display: inline-block;
-            font-size: 14px;
-            color: #3b82f6;
-            line-height: 1;
+        /* 팝업 창 커스터마이징 */
+        .leaflet-popup-content-wrapper { border-radius: 12px; padding: 0; overflow: hidden; }
+        .leaflet-popup-content { margin: 0; width: 320px !important; }
+
+        /* 예보 리스트 스타일 */
+        .forecast-scroll {
+            display: flex; overflow-x: auto; gap: 8px; padding-bottom: 8px;
         }
+        .forecast-scroll::-webkit-scrollbar { height: 4px; }
+        .forecast-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
     </style>
 </head>
-<body class="bg-slate-50 p-4">
+<body class="bg-slate-100 p-4">
 
     <div class="max-w-6xl mx-auto">
-        <header class="mb-6">
-            <h1 class="text-3xl font-black text-slate-900 tracking-tight text-center">사가현 통합 기상 모니터링 시스템</h1>
-            <p class="text-slate-500 font-medium text-center mt-2">기온 · 강수 상태 · 풍향(화살표) · 풍속 실시간 표출</p>
+        <header class="mb-6 flex justify-between items-center">
+            <h1 class="text-3xl font-black text-slate-900 tracking-tight">사가현 상세 기상 예보 맵</h1>
+            <div class="text-sm font-bold text-blue-600 bg-blue-50 px-4 py-2 rounded-full border border-blue-200">
+                일본 기상청(JMA) 모델 기반
+            </div>
         </header>
 
-        <div class="bg-white p-2 rounded-2xl shadow-xl border border-slate-200">
+        <div class="bg-white p-2 rounded-2xl shadow-2xl">
             <div id="map"></div>
-        </div>
-        
-        <div class="mt-4 flex justify-center gap-6 text-xs font-bold text-slate-500">
-            <div class="flex items-center gap-2"><span>🌡️</span> 기온</div>
-            <div class="flex items-center gap-2"><span>💧/☀️</span> 강수유무</div>
-            <div class="flex items-center gap-2"><span>➡️</span> 풍향/풍속</div>
         </div>
     </div>
 
@@ -72,79 +64,96 @@
             { id: "다쿠시", lat: 33.2828, lon: 130.1118 }
         ];
 
-        // WMO 날씨 코드에 따른 아이콘 매핑
         function getWeatherIcon(code) {
-            if (code <= 1) return "☀️"; // 맑음
-            if (code <= 3) return "☁️"; // 구름조금/흐림
-            if (code >= 51 && code <= 67) return "💧"; // 비
-            if (code >= 80 && code <= 82) return "🌦️"; // 소나기
-            if (code >= 95) return "⚡"; // 뇌우
-            return "☁️";
+            if (code <= 1) return "☀️"; if (code <= 3) return "☁️";
+            if (code >= 51 && code <= 67) return "💧";
+            if (code >= 80 && code <= 82) return "🌦️";
+            if (code >= 95) return "⚡"; return "☁️";
         }
 
-        async function fetchWeatherData() {
+        async function fetchForecastData() {
             const lats = sagaCities.map(c => c.lat).join(',');
             const lons = sagaCities.map(c => c.lon).join(',');
-            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&current_weather=true&timezone=Asia%2FTokyo`;
+            
+            // hourly(24시간), daily(7일) 정보 요청 (JMA 모델)
+            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&current_weather=true&hourly=temperature_2m,weathercode,precipitation&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum&models=jma_seamless&timezone=Asia%2FTokyo`;
 
             try {
                 const response = await fetch(url);
-                const data = await response.json();
+                const dataArray = await response.json();
 
-                // 기존 마커 제거 (새로고침 시)
-                map.eachLayer((layer) => {
-                    if (layer instanceof L.Marker) map.removeLayer(layer);
-                });
-
-                data.forEach((locData, index) => {
+                dataArray.forEach((data, index) => {
                     const city = sagaCities[index];
-                    const w = locData.current_weather;
-                    
-                    const temp = Math.round(w.temperature);
-                    const windSpeed = Math.round(w.windspeed);
-                    const windDir = w.winddirection;
-                    const weatherIcon = getWeatherIcon(w.weathercode);
+                    const curr = data.current_weather;
 
-                    // HTML 기반 커스텀 마커 (DivIcon)
-                    const weatherCardHtml = `
-                        <div class="weather-card-marker" style="width: 60px; height: 75px;">
+                    // --- 24시간 예보 생성 ---
+                    let hourlyHtml = '';
+                    for(let i=0; i<24; i++) {
+                        const time = new Date(data.hourly.time[i]).getHours();
+                        hourlyHtml += `
+                            <div class="flex-shrink-0 text-center p-2 bg-slate-50 rounded-lg border border-slate-100 min-w-[50px]">
+                                <div class="text-[10px] text-slate-400 font-bold">${time}시</div>
+                                <div class="text-sm my-1">${getWeatherIcon(data.hourly.weathercode[i])}</div>
+                                <div class="text-xs font-black">${Math.round(data.hourly.temperature_2m[i])}°</div>
+                            </div>
+                        `;
+                    }
+
+                    // --- 7일 주간 예보 생성 ---
+                    let dailyHtml = '';
+                    for(let i=0; i<7; i++) {
+                        const date = new Date(data.daily.time[i]);
+                        const dayStr = ['일','월','화','수','목','금','토'][date.getDay()];
+                        dailyHtml += `
+                            <div class="flex items-center justify-between text-xs py-1.5 border-b border-slate-50 last:border-0">
+                                <span class="font-bold w-8 ${dayStr==='일'?'text-red-500':dayStr==='토'?'text-blue-500':''}">${dayStr}</span>
+                                <span class="text-sm">${getWeatherIcon(data.daily.weathercode[i])}</span>
+                                <div class="w-24 text-right">
+                                    <span class="font-black text-slate-800">${Math.round(data.daily.temperature_2m_max[i])}°</span>
+                                    <span class="text-slate-300 mx-1">/</span>
+                                    <span class="font-bold text-slate-400">${Math.round(data.daily.temperature_2m_min[i])}°</span>
+                                </div>
+                            </div>
+                        `;
+                    }
+
+                    // --- 지도 마커 HTML ---
+                    const markerHtml = `
+                        <div class="weather-card-marker" style="width: 55px; height: 65px;">
                             <div class="text-[10px] font-bold text-slate-400 leading-tight">${city.id.replace('시','')}</div>
-                            <div class="text-lg font-black text-slate-800 leading-tight">${temp}°</div>
-                            <div class="text-sm mt-0.5">${weatherIcon}</div>
-                            <div class="flex items-center gap-0.5 mt-1">
-                                <span class="wind-arrow" style="transform: rotate(${windDir}deg);">⬆️</span>
-                                <span class="text-[9px] font-black text-blue-600">${windSpeed}</span>
+                            <div class="text-lg font-black text-slate-800">${Math.round(curr.temperature)}°</div>
+                            <div class="text-xs">${getWeatherIcon(curr.weathercode)}</div>
+                        </div>
+                    `;
+
+                    // --- 상세 팝업 HTML ---
+                    const popupHtml = `
+                        <div class="bg-white">
+                            <div class="bg-blue-600 p-4 text-white">
+                                <h3 class="text-xl font-black">${city.id}</h3>
+                                <p class="text-xs opacity-80">현재 기온 ${curr.temperature}°C | 풍속 ${curr.windspeed}km/h</p>
+                            </div>
+                            <div class="p-4">
+                                <h4 class="text-xs font-black text-slate-400 uppercase mb-3">24시간 시간별 예보</h4>
+                                <div class="forecast-scroll mb-6">
+                                    ${hourlyHtml}
+                                </div>
+                                <h4 class="text-xs font-black text-slate-400 uppercase mb-2">주간 예보 (7일)</h4>
+                                <div class="bg-slate-50 p-3 rounded-xl">
+                                    ${dailyHtml}
+                                </div>
                             </div>
                         </div>
                     `;
 
-                    const customIcon = L.divIcon({
-                        className: 'custom-icon',
-                        html: weatherCardHtml,
-                        iconSize: [60, 75],
-                        iconAnchor: [30, 37]
-                    });
-
-                    L.marker([city.lat, city.lon], { icon: customIcon })
-                        .addTo(map)
-                        .bindPopup(`
-                            <div class="p-2">
-                                <strong class="text-lg">${city.id}</strong><br>
-                                <hr class="my-1">
-                                기온: ${w.temperature}°C<br>
-                                풍속: ${w.windspeed} km/h<br>
-                                풍향: ${w.winddirection}° (북풍 0° 기준)<br>
-                                상태: ${weatherIcon} (WMO Code: ${w.weathercode})
-                            </div>
-                        `);
+                    const icon = L.divIcon({ className: '', html: markerHtml, iconSize: [55, 65], iconAnchor: [27, 32] });
+                    L.marker([city.lat, city.lon], { icon }).addTo(map).bindPopup(popupHtml);
                 });
-            } catch (error) {
-                console.error("데이터 로드 실패", error);
-            }
+            } catch (error) { console.error("데이터 로딩 실패", error); }
         }
 
-        fetchWeatherData();
-        setInterval(fetchWeatherData, 600000); // 10분마다 갱신
+        fetchForecastData();
+        setInterval(fetchForecastData, 600000);
     </script>
 </body>
 </html>
