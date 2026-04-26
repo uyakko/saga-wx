@@ -3,59 +3,62 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>사가현 기상 맵 & 모델 비교</title>
+    <title>사가현 통합 기상 모니터링</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
-        #map { height: 700px; width: 100%; border-radius: 1rem; z-index: 10; }
+        #map { height: 750px; width: 100%; border-radius: 1rem; z-index: 10; }
         
-        /* 지도 위 온도 숫자 마커의 디자인 */
-        .temp-marker {
-            background-color: rgba(255, 255, 255, 0.95);
-            border: 3px solid #3b82f6; /* 파란색 테두리 */
-            border-radius: 50%;
-            font-weight: 900;
-            font-size: 14px;
-            color: #1e3a8a;
-            text-align: center;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
-            /* 중앙 정렬을 위한 설정 */
+        /* 통합 기상 마커 디자인 */
+        .weather-card-marker {
+            background: white;
+            border: 2px solid #cbd5e1;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
             display: flex;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
+            padding: 4px;
+            transition: all 0.2s;
         }
-        
-        /* 팝업 테이블 스타일 */
-        .model-table th, .model-table td { padding: 4px 8px; text-align: center; border-bottom: 1px solid #e5e7eb; }
-        .model-table th { background-color: #f3f4f6; font-size: 11px; color: #6b7280; }
-        .model-table td { font-size: 12px; font-weight: bold; }
+        .weather-card-marker:hover { transform: scale(1.1); border-color: #3b82f6; z-index: 1000 !important; }
+
+        /* 풍향 화살표 애니메이션 */
+        .wind-arrow {
+            display: inline-block;
+            font-size: 14px;
+            color: #3b82f6;
+            line-height: 1;
+        }
     </style>
 </head>
-<body class="bg-slate-100 text-slate-800 p-4 md:p-8">
+<body class="bg-slate-50 p-4">
 
     <div class="max-w-6xl mx-auto">
-        <header class="mb-6 flex justify-between items-end">
-            <div>
-                <h1 class="text-3xl font-black text-slate-900 tracking-tight">사가현 실시간 기온 맵</h1>
-                <p class="text-slate-500 font-medium mt-1">숫자 클릭 시 글로벌 기상 모델 예보 비교 (JMA vs ECMWF vs GFS)</p>
-            </div>
+        <header class="mb-6">
+            <h1 class="text-3xl font-black text-slate-900 tracking-tight text-center">사가현 통합 기상 모니터링 시스템</h1>
+            <p class="text-slate-500 font-medium text-center mt-2">기온 · 강수 상태 · 풍향(화살표) · 풍속 실시간 표출</p>
         </header>
 
         <div class="bg-white p-2 rounded-2xl shadow-xl border border-slate-200">
             <div id="map"></div>
         </div>
+        
+        <div class="mt-4 flex justify-center gap-6 text-xs font-bold text-slate-500">
+            <div class="flex items-center gap-2"><span>🌡️</span> 기온</div>
+            <div class="flex items-center gap-2"><span>💧/☀️</span> 강수유무</div>
+            <div class="flex items-center gap-2"><span>➡️</span> 풍향/풍속</div>
+        </div>
     </div>
 
     <script>
-        // 1. 지도 초기화
         const map = L.map('map').setView([33.2635, 130.1500], 11);
         L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-            attribution: '© OpenStreetMap contributors, © CARTO',
-            maxZoom: 18
+            attribution: '© OpenStreetMap, © CARTO'
         }).addTo(map);
 
-        // 2. 사가현 주요 시정촌 10곳 좌표 배열
         const sagaCities = [
             { id: "사가시", lat: 33.2635, lon: 130.3009 },
             { id: "가라쓰시", lat: 33.4549, lon: 129.9689 },
@@ -69,91 +72,79 @@
             { id: "다쿠시", lat: 33.2828, lon: 130.1118 }
         ];
 
-        // 3. Open-Meteo API 다중 호출 및 모델 비교
-        async function fetchTemperatures() {
+        // WMO 날씨 코드에 따른 아이콘 매핑
+        function getWeatherIcon(code) {
+            if (code <= 1) return "☀️"; // 맑음
+            if (code <= 3) return "☁️"; // 구름조금/흐림
+            if (code >= 51 && code <= 67) return "💧"; // 비
+            if (code >= 80 && code <= 82) return "🌦️"; // 소나기
+            if (code >= 95) return "⚡"; // 뇌우
+            return "☁️";
+        }
+
+        async function fetchWeatherData() {
             const lats = sagaCities.map(c => c.lat).join(',');
             const lons = sagaCities.map(c => c.lon).join(',');
-
-            // current_weather: 현재 날씨
-            // daily: 일일 예보 (최고기온, 강수량)
-            // models: 일본(JMA), 유럽(ECMWF), 미국(GFS)
-            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&current_weather=true&daily=temperature_2m_max,precipitation_sum&models=jma_seamless,ecmwf_ifs,gfs_seamless&timezone=Asia%2FTokyo`;
+            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&current_weather=true&timezone=Asia%2FTokyo`;
 
             try {
                 const response = await fetch(url);
-                const data = await response.json(); // 10개 지역의 데이터가 배열로 들어옴
+                const data = await response.json();
+
+                // 기존 마커 제거 (새로고침 시)
+                map.eachLayer((layer) => {
+                    if (layer instanceof L.Marker) map.removeLayer(layer);
+                });
 
                 data.forEach((locData, index) => {
                     const city = sagaCities[index];
-                    const currentTemp = Math.round(locData.current_weather.temperature);
+                    const w = locData.current_weather;
                     
-                    // 오늘 기준 각 모델의 예보값 추출
-                    const daily = locData.daily;
-                    
-                    // JMA (일본) 예보
-                    const jmaTemp = daily.temperature_2m_max_jma_seamless ? Math.round(daily.temperature_2m_max_jma_seamless[0]) : '-';
-                    const jmaRain = daily.precipitation_sum_jma_seamless ? daily.precipitation_sum_jma_seamless[0] : 0;
-                    
-                    // ECMWF (유럽) 예보
-                    const ecmwfTemp = daily.temperature_2m_max_ecmwf_ifs ? Math.round(daily.temperature_2m_max_ecmwf_ifs[0]) : '-';
-                    const ecmwfRain = daily.precipitation_sum_ecmwf_ifs ? daily.precipitation_sum_ecmwf_ifs[0] : 0;
+                    const temp = Math.round(w.temperature);
+                    const windSpeed = Math.round(w.windspeed);
+                    const windDir = w.winddirection;
+                    const weatherIcon = getWeatherIcon(w.weathercode);
 
-                    // GFS (미국) 예보
-                    const gfsTemp = daily.temperature_2m_max_gfs_seamless ? Math.round(daily.temperature_2m_max_gfs_seamless[0]) : '-';
-                    const gfsRain = daily.precipitation_sum_gfs_seamless ? daily.precipitation_sum_gfs_seamless[0] : 0;
-
-                    // Leaflet DivIcon 생성 (지도 위에 숫자로 그림)
-                    const tempIcon = L.divIcon({
-                        className: 'custom-div-icon',
-                        html: `<div class="temp-marker" style="width: 44px; height: 44px;">${currentTemp}°</div>`,
-                        iconSize: [44, 44],
-                        iconAnchor: [22, 22] // 중앙 정렬
-                    });
-
-                    // 팝업 내용 구성 (예보 비교 테이블)
-                    const popupContent = `
-                        <div style="min-width: 220px;">
-                            <h3 class="text-base font-black text-slate-800 mb-1 border-b pb-1">${city.id} (현재 ${currentTemp}°C)</h3>
-                            <p class="text-xs text-slate-500 mb-2">오늘의 최고기온 / 강수량 모델 비교</p>
-                            <table class="w-full model-table mb-1">
-                                <tr>
-                                    <th>모델</th>
-                                    <th>최고기온</th>
-                                    <th>강수량</th>
-                                </tr>
-                                <tr>
-                                    <td class="text-blue-700">🇯🇵 JMA</td>
-                                    <td>${jmaTemp}°C</td>
-                                    <td>${jmaRain} mm</td>
-                                </tr>
-                                <tr>
-                                    <td class="text-emerald-700">🇪🇺 ECMWF</td>
-                                    <td>${ecmwfTemp}°C</td>
-                                    <td>${ecmwfRain} mm</td>
-                                </tr>
-                                <tr>
-                                    <td class="text-orange-700">🇺🇸 GFS</td>
-                                    <td>${gfsTemp}°C</td>
-                                    <td>${gfsRain} mm</td>
-                                </tr>
-                            </table>
+                    // HTML 기반 커스텀 마커 (DivIcon)
+                    const weatherCardHtml = `
+                        <div class="weather-card-marker" style="width: 60px; height: 75px;">
+                            <div class="text-[10px] font-bold text-slate-400 leading-tight">${city.id.replace('시','')}</div>
+                            <div class="text-lg font-black text-slate-800 leading-tight">${temp}°</div>
+                            <div class="text-sm mt-0.5">${weatherIcon}</div>
+                            <div class="flex items-center gap-0.5 mt-1">
+                                <span class="wind-arrow" style="transform: rotate(${windDir}deg);">⬆️</span>
+                                <span class="text-[9px] font-black text-blue-600">${windSpeed}</span>
+                            </div>
                         </div>
                     `;
 
-                    // 지도에 마커 추가 및 팝업 연결
-                    L.marker([city.lat, city.lon], { icon: tempIcon })
-                        .addTo(map)
-                        .bindPopup(popupContent);
-                });
+                    const customIcon = L.divIcon({
+                        className: 'custom-icon',
+                        html: weatherCardHtml,
+                        iconSize: [60, 75],
+                        iconAnchor: [30, 37]
+                    });
 
+                    L.marker([city.lat, city.lon], { icon: customIcon })
+                        .addTo(map)
+                        .bindPopup(`
+                            <div class="p-2">
+                                <strong class="text-lg">${city.id}</strong><br>
+                                <hr class="my-1">
+                                기온: ${w.temperature}°C<br>
+                                풍속: ${w.windspeed} km/h<br>
+                                풍향: ${w.winddirection}° (북풍 0° 기준)<br>
+                                상태: ${weatherIcon} (WMO Code: ${w.weathercode})
+                            </div>
+                        `);
+                });
             } catch (error) {
-                console.error("기상 데이터 로드 실패", error);
+                console.error("데이터 로드 실패", error);
             }
         }
 
-        fetchTemperatures();
-        // 10분마다 갱신
-        setInterval(fetchTemperatures, 600000);
+        fetchWeatherData();
+        setInterval(fetchWeatherData, 600000); // 10분마다 갱신
     </script>
 </body>
 </html>
