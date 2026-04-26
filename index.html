@@ -7,22 +7,32 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        #map { height: 500px; width: 100%; border-radius: 12px; background: #f0f0f0; }
-        .emergency-banner { padding: 12px; text-align: center; font-weight: bold; border-radius: 8px; margin-bottom: 20px; color: white; background-color: #666; }
+        #map { height: 500px; width: 100%; border-radius: 12px; background: #e0e0e0; z-index: 1; }
+        .emergency-banner { padding: 12px; text-align: center; font-weight: bold; border-radius: 8px; margin-bottom: 20px; color: white; background-color: #607d8b; }
         .status-card { padding: 20px; background: white; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .error-hint { font-size: 0.85rem; color: #c62828; margin-top: 10px; display: none; }
     </style>
 </head>
 <body>
     <main class="container">
-        <header><h1>사가현 실시간 방재 시스템</h1></header>
-        <div id="status-banner" class="emergency-banner">데이터를 연결하는 중...</div>
+        <header>
+            <h1>사가현 실시간 방재 포털</h1>
+            <p>Saga Disaster Prevention Real-time Monitor</p>
+        </header>
+
+        <div id="status-banner" class="emergency-banner">시스템 연결 중...</div>
 
         <div style="display: grid; grid-template-columns: 1fr; gap: 20px;">
             <section class="status-card">
-                <h4>🌤️ 현재 기상 및 레이더</h4>
-                <div id="weather-text" style="margin-bottom: 15px; font-weight: bold;">날씨 정보 불러오는 중...</div>
+                <h4 id="weather-title">🌤️ 사가현 기상 정보</h4>
+                <div id="weather-text" style="font-size: 1.2rem; font-weight: bold; margin-bottom: 10px;">데이터를 불러오는 중입니다...</div>
                 <div id="map"></div>
-                <p id="update-time" style="font-size: 0.8rem; margin-top: 10px; color: #888;"></p>
+                <div id="error-msg" class="error-hint">
+                    ※ 일본 기상청 보안 정책으로 데이터 로드가 차단되었습니다. 아래 '공식 사이트' 버튼을 이용해 주세요.
+                </div>
+                <div style="margin-top: 15px;">
+                    <a href="https://www.jma.go.jp/bosai/map.html#contents=warning&area_code=410000" target="_blank" class="outline" role="button">JMA 공식 레이더 보기</a>
+                </div>
             </section>
         </div>
     </main>
@@ -32,49 +42,52 @@
         document.addEventListener('DOMContentLoaded', function() {
             const banner = document.getElementById('status-banner');
             const weatherDiv = document.getElementById('weather-text');
-            const timeDiv = document.getElementById('update-time');
+            const errorHint = document.getElementById('error-msg');
 
-            // 1. 지도 기본 설정 (데이터와 상관없이 먼저 띄움)
-            const map = L.map('map').setView([33.2635, 130.3008], 9);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-            L.marker([33.2635, 130.3008]).addTo(map).bindPopup("사가현청");
+            // 1. 지도 초기화 (데이터 로드 실패와 상관없이 무조건 실행)
+            const map = L.map('map').setView([33.2635, 130.3008], 10);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap'
+            }).addTo(map);
+            
+            L.marker([33.2635, 130.3008]).addTo(map).bindPopup("사가현청").openPopup();
 
-            // 2. 데이터 로드 함수 (CORS 에러 방지를 위한 처리 포함)
-            async function loadData() {
+            // 2. 개별 데이터 로드 시도
+            async function fetchData() {
                 try {
-                    // 기상청 예보 API 호출
+                    // 예보 데이터
                     const wRes = await fetch("https://www.jma.go.jp/bosai/forecast/data/forecast/410000.json");
-                    if (!wRes.ok) throw new Error("예보 데이터 접근 불가");
-                    const wData = await wRes.json();
-                    
-                    const forecast = wData[0].series[0].areas[0].weathers[0];
-                    weatherDiv.innerText = "현재 예보: " + forecast;
-                    timeDiv.innerText = "최종 업데이트: " + new Date().toLocaleString();
+                    if (wRes.ok) {
+                        const wData = await wRes.json();
+                        weatherDiv.innerText = "오늘 예보: " + wData[0].series[0].areas[0].weathers[0];
+                    }
 
-                    // 레이더 타임스탬프 호출
+                    // 레이더 데이터
                     const rRes = await fetch("https://www.jma.go.jp/bosai/jmatile/data/nowc/target.json");
-                    const rData = await rRes.json();
-                    const ts = rData[0];
-
-                    // 레이더 레이어 추가
-                    L.tileLayer(`https://www.jma.go.jp/bosai/jmatile/data/nowc/${ts}/none/{z}/{x}/{y}.png`, {
-                        opacity: 0.6,
-                        zIndex: 10
-                    }).addTo(map);
-
-                    // 성공 시 UI 변경
-                    banner.style.backgroundColor = "#2e7d32";
-                    banner.innerText = "✅ 실시간 데이터 동기화 완료";
+                    if (rRes.ok) {
+                        const rData = await rRes.json();
+                        const ts = rData[0];
+                        L.tileLayer(`https://www.jma.go.jp/bosai/jmatile/data/nowc/${ts}/none/{z}/{x}/{y}.png`, {
+                            opacity: 0.6,
+                            zIndex: 100
+                        }).addTo(map);
+                        
+                        banner.style.backgroundColor = "#2e7d32";
+                        banner.innerText = "✅ 데이터 동기화 완료";
+                    } else {
+                        throw new Error("CORS_BLOCKED");
+                    }
 
                 } catch (e) {
-                    console.error("Error details:", e);
+                    console.error("Data Load Error:", e);
                     banner.style.backgroundColor = "#c62828";
-                    banner.innerText = "⚠️ 실시간 데이터 연동 지연 중 (네트워크 환경 확인)";
-                    weatherDiv.innerText = "기상청 서버와의 연결이 원활하지 않습니다.";
+                    banner.innerText = "⚠️ 데이터 연동 제한됨 (보안 정책)";
+                    weatherDiv.innerText = "실시간 기상 데이터 접근이 제한되었습니다.";
+                    errorHint.style.display = "block";
                 }
             }
 
-            loadData();
+            fetchData();
         });
     </script>
 </body>
