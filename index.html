@@ -13,4 +13,24 @@
     <div class="alert">현재 발령 중인 특보/주의보가 없습니다.</div>
     <p>기상 전문가가 전달하는 사가현의 상세 날씨와 방재 정보를 확인하세요.</p>
 </body>
+    <script>
+  async function getSagaWeather() {
+    // 일본 기상청의 예보 API (사가현: 410000)
+    const url = "https://www.jma.go.jp/bosai/forecast/data/forecast/410000.json";
+    try {
+      const response = await fetch(url);
+      const data = await response.json();
+      
+      // 데이터에서 필요한 기상 정보 추출 (예시)
+      const reportTime = data[0].reportDatetime;
+      const forecast = data[0].series[0].areas[0].weathers[0];
+      
+      document.getElementById('weather-info').innerText = 
+        `발표 시각: ${new Date(reportTime).toLocaleString()} / 현재 예보: ${forecast}`;
+    } catch (error) {
+      console.error("데이터 로드 실패:", error);
+    }
+  }
+  getSagaWeather();
+</script>
 </html>
