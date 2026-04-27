@@ -553,7 +553,7 @@ function initMap() {
   ],{color:'#2563eb',weight:2,opacity:0.4,dashArray:'6,4'}).addTo(map);
 
   // クリックでピンポイント予報
-  map.on('click', function(e) {
+map.on('click', function(e) {
     var lat = e.latlng.lat, lng = e.latlng.lng;
     if (lat<32.8||lat>33.7||lng<129.5||lng>130.7) return;
 
@@ -561,13 +561,16 @@ function initMap() {
     if (window._ppMarker) { map.removeLayer(window._ppMarker); window._ppMarker = null; }
 
     var uid = 'pp_' + Date.now();
-    var popupHtml = '<div style="min-width:280px">'
-      + '<b style="color:#2563eb;font-size:0.9rem">📍 ' + lat.toFixed(4) + ', ' + lng.toFixed(4) + '</b>'
+    
+    // [수정 포인트 1] 문자열 대신 DOM 요소를 직접 생성합니다.
+    var popupDiv = document.createElement('div');
+    popupDiv.style.minWidth = '280px';
+    popupDiv.innerHTML = '<b style="color:#2563eb;font-size:0.9rem">📍 ' + lat.toFixed(4) + ', ' + lng.toFixed(4) + '</b>'
       + '<div style="font-size:0.68rem;color:#94a3b8;margin-bottom:6px">Open-Meteo JMA (MSM/GSM)</div>'
       + '<div id="' + uid + '" style="border-top:1px solid rgba(0,0,0,0.08);padding-top:6px">'
       + '<div style="display:flex;align-items:center;gap:4px;color:#64748b;font-size:0.75rem;padding:8px 0">'
       + '<div class="spinner" style="width:14px;height:14px;border-width:2px"></div>予報読み込み中...</div>'
-      + '</div></div>';
+      + '</div>';
 
     var ppIcon = L.divIcon({
       html:'<div style="background:#2563eb;color:white;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:0.8rem;box-shadow:0 2px 8px rgba(0,0,0,0.3)">📍</div>',
@@ -575,12 +578,17 @@ function initMap() {
     });
 
     window._ppMarker = L.marker([lat,lng], {icon: ppIcon}).addTo(map);
-    window._ppMarker.bindPopup(popupHtml, {maxWidth:380, minWidth:280});
+    
+    // [수정 포인트 2] 문자열(popupHtml) 대신 DOM 요소(popupDiv)를 넘깁니다.
+    window._ppMarker.bindPopup(popupDiv, {maxWidth:380, minWidth:280});
 
-    // popupopenイベントで予報取得（AMEDAS方式と完全に同じ）
+    // popupopenイベントで予報取得
     window._ppMarker.on('popupopen', async function() {
-      var container = document.getElementById(uid);
+      // [수정 포인트 3] document 탐색이 실패하더라도 생성한 popupDiv 내부에서 찾도록 이중 확인
+      var container = document.getElementById(uid) || popupDiv.querySelector('#' + uid);
+      
       if (!container || container.dataset.loaded === '1') return;
+      
       try {
         var url = 'https://api.open-meteo.com/v1/jma?latitude=' + lat + '&longitude=' + lng
           + '&hourly=temperature_2m,precipitation,weather_code,wind_speed_10m'
@@ -596,7 +604,7 @@ function initMap() {
       }
     });
 
-    // マーカーをクリックしてポップアップを開く（Leafletの自然な流れ）
+    // マーカーをクリックしてポップアップを開く
     window._ppMarker.fire('click');
   });
 }
