@@ -453,6 +453,14 @@ body {
       <div class="card-body-scroll" id="earthquakePanel">
         <div class="loading"><div class="spinner"></div>読み込み中...</div>
       </div>
+
+    <!-- Typhoon -->
+    <div class="glass">
+      <div class="card-header"><span class="icon">🌀</span>台風情報</div>
+      <div class="card-body" id="typhoonPanel">
+        <div class="loading"><div class="spinner"></div>読み込み中...</div>
+      </div>
+    </div>
     </div>
   </div>
 </div>
@@ -476,6 +484,11 @@ const STATIONS = {
   '85166':{name:'白石',lat:33.183,lon:130.148},
   '85176':{name:'川副',lat:33.148,lon:130.302},
   '85046':{name:'北山',lat:33.413,lon:130.220},
+};
+
+const USER_SPOTS = {
+  'usr_kashima': {name:'鹿島ガタリンピック会場', lat:33.0755686, lon:130.1463257, icon:'🏖️'},
+  'usr_imari':   {name:'伊万里湾大花火メイン会場', lat:33.3304073, lon:129.8344106, icon:'🎆'}
 };
 
 const WARN_NAMES = {
@@ -540,10 +553,51 @@ function initMap() {
   ],{color:'#2563eb',weight:2,opacity:0.4,dashArray:'6,4'}).addTo(map);
 
   // クリックでピンポイント予報
-  map.on('click', e => {
-    const {lat,lng} = e.latlng;
+  map.on('click', function(e) {
+    var lat = e.latlng.lat, lng = e.latlng.lng;
     if (lat<32.8||lat>33.7||lng<129.5||lng>130.7) return;
-    loadPinpoint(lat,lng);
+
+    // 既存ピンポイントマーカー削除
+    if (window._ppMarker) { map.removeLayer(window._ppMarker); window._ppMarker = null; }
+
+    var uid = 'pp_' + Date.now();
+    var popupHtml = '<div style="min-width:280px">'
+      + '<b style="color:#2563eb;font-size:0.9rem">📍 ' + lat.toFixed(4) + ', ' + lng.toFixed(4) + '</b>'
+      + '<div style="font-size:0.68rem;color:#94a3b8;margin-bottom:6px">Open-Meteo JMA (MSM/GSM)</div>'
+      + '<div id="' + uid + '" style="border-top:1px solid rgba(0,0,0,0.08);padding-top:6px">'
+      + '<div style="display:flex;align-items:center;gap:4px;color:#64748b;font-size:0.75rem;padding:8px 0">'
+      + '<div class="spinner" style="width:14px;height:14px;border-width:2px"></div>予報読み込み中...</div>'
+      + '</div></div>';
+
+    var ppIcon = L.divIcon({
+      html:'<div style="background:#2563eb;color:white;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:0.8rem;box-shadow:0 2px 8px rgba(0,0,0,0.3)">📍</div>',
+      className:'', iconSize:[28,28], iconAnchor:[14,14]
+    });
+
+    window._ppMarker = L.marker([lat,lng], {icon: ppIcon}).addTo(map);
+    window._ppMarker.bindPopup(popupHtml, {maxWidth:380, minWidth:280});
+
+    // popupopenイベントで予報取得（AMEDAS方式と完全に同じ）
+    window._ppMarker.on('popupopen', async function() {
+      var container = document.getElementById(uid);
+      if (!container || container.dataset.loaded === '1') return;
+      try {
+        var url = 'https://api.open-meteo.com/v1/jma?latitude=' + lat + '&longitude=' + lng
+          + '&hourly=temperature_2m,precipitation,weather_code,wind_speed_10m'
+          + '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum'
+          + '&timezone=Asia/Tokyo&forecast_days=7';
+        var r = await fetch(url);
+        var data = await r.json();
+        container.innerHTML = buildForecastHtml(data);
+        container.dataset.loaded = '1';
+        if (window._ppMarker) window._ppMarker.getPopup().update();
+      } catch(err) {
+        if (container) container.innerHTML = '<div style="color:#ef4444;font-size:0.75rem">予報取得失敗</div>';
+      }
+    });
+
+    // マーカーをクリックしてポップアップを開く（Leafletの自然な流れ）
+    window._ppMarker.fire('click');
   });
 }
 
@@ -642,6 +696,25 @@ function updateMarkers() {
     `;
     const mk = L.marker([st.lat,st.lon],{icon}).bindPopup(popupDiv,{maxWidth:320,minWidth:280}).addTo(map);
     mk.on('popupopen', () => loadStationForecast(id, st));
+    markers.push(mk);
+  });
+
+  // === USER SPOTS (ユーザー地点) ===
+  Object.entries(USER_SPOTS).forEach(([id, sp]) => {
+    const icon = L.divIcon({
+      html: `<div style="font-size:0.65rem;font-weight:700;padding:2px 5px;border-radius:6px;white-space:nowrap;text-align:center;border:1.5px solid rgba(255,255,255,0.8);box-shadow:0 1px 4px rgba(0,0,0,0.15);min-width:32px;background:#fef3c7;color:#92400e">${sp.icon}${sp.name.substring(0,4)}</div>`,
+      className:'', iconSize:[60,20], iconAnchor:[30,10]
+    });
+    const popupId = `popup-fc-${id}`;
+    const popupHtml = `<div style="min-width:280px">
+      <div style="font-weight:700;font-size:0.9rem;color:#2563eb;margin-bottom:4px">${sp.icon} ${sp.name}</div>
+      <div style="font-size:0.68rem;color:#94a3b8;margin-bottom:6px">${sp.lat.toFixed(4)}, ${sp.lon.toFixed(4)}</div>
+      <div id="${popupId}" style="border-top:1px solid rgba(0,0,0,0.08);padding-top:6px">
+        <div class="loading" style="padding:8px 0"><div class="spinner" style="width:14px;height:14px;border-width:2px;margin-right:6px"></div>予報読み込み中...</div>
+      </div>
+    </div>`;
+    const mk = L.marker([sp.lat, sp.lon], {icon}).bindPopup(popupHtml, {maxWidth:340, minWidth:280}).addTo(map);
+    mk.on('popupopen', () => loadStationForecast(id, sp));
     markers.push(mk);
   });
 }
@@ -754,135 +827,117 @@ function switchTab(tab,el) {
 // ============================================================
 // PINPOINT (Open-Meteo JMA)
 // ============================================================
-async function loadPinpoint(lat,lng) {
-  const panel=document.getElementById('pinpointPanel');
-  const body=document.getElementById('ppBody');
-  const title=document.getElementById('ppTitle');
-  panel.classList.add('active');
-  body.innerHTML='<div class="loading"><div class="spinner"></div>予報取得中...</div>';
-  title.textContent=`📍 ${lat.toFixed(3)}, ${lng.toFixed(3)}`;
 
-  // マーカー追加
-  if (window._ppMarker) map.removeLayer(window._ppMarker);
-  window._ppMarker = L.marker([lat,lng],{
-    icon: L.divIcon({
-      html:'<div style="background:#2563eb;color:white;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:0.8rem;box-shadow:0 2px 8px rgba(0,0,0,0.3)">📍</div>',
-      className:'',iconSize:[28,28],iconAnchor:[14,14]
-    })
-  }).addTo(map);
 
-  try {
-    const url=`https://api.open-meteo.com/v1/jma?latitude=${lat}&longitude=${lng}&hourly=temperature_2m,relative_humidity_2m,precipitation,weather_code,wind_speed_10m,wind_direction_10m&timezone=Asia/Tokyo&forecast_days=2`;
-    const r=await fetch(url);
-    const data=await r.json();
-    const hr=data.hourly;
-    if(!hr||!hr.time) { body.innerHTML='<div style="color:#94a3b8">データなし</div>'; return; }
+function buildForecastHtml(data) {
+  var hr = data.hourly;
+  var dy = data.daily;
+  var dayNames = ['日','月','火','水','木','金','土'];
+  var now = new Date();
+  var h = '';
 
-    // 現在時刻以降のみ表示
-    const now=new Date();
-    let h='';
-    let count=0;
-    for(let i=0;i<hr.time.length&&count<24;i++){
-      const t=new Date(hr.time[i]);
-      if(t<now) continue;
+  // === 24時間予報 (横テーブル: 時間が列) ===
+  if (hr && hr.time) {
+    h += '<div style="font-weight:600;font-size:0.75rem;color:#334155;margin:6px 0 4px">⏱️ 24時間予報</div>';
+    h += '<div style="overflow-x:auto;margin-bottom:8px">';
+    var times=[], icons=[], temps=[], rains=[], winds=[];
+    var count = 0;
+    for (var i=0; i<hr.time.length && count<24; i++) {
+      var t = new Date(hr.time[i]);
+      if (t < now) continue;
       count++;
-      const hh=String(t.getHours()).padStart(2,'0')+':00';
-      const dayMark = (t.getDate()!==now.getDate() && t.getHours()===0) ?
-        `<div style="font-size:0.7rem;color:#2563eb;font-weight:700;padding:4px 0;border-top:1px solid rgba(0,0,0,0.08)">${t.getMonth()+1}/${t.getDate()}</div>` : '';
-      const temp=hr.temperature_2m[i];
-      const rain=hr.precipitation[i];
-      const wcode=hr.weather_code[i];
-      const wspd=hr.wind_speed_10m[i];
-      const wdir=hr.wind_direction_10m[i];
-      const dirIdx=Math.round(wdir/22.5)%16;
-      h+=dayMark;
-      h+=`<div class="pp-row">
-        <div class="pp-time">${hh}</div>
-        <div class="pp-wicon">${wmoIcon(wcode)}</div>
-        <div class="pp-temp">${temp!=null?temp.toFixed(1)+'°':'--'}</div>
-        <div class="pp-rain">${rain>0?rain.toFixed(1)+'mm':'--'}</div>
-        <div class="pp-wind">${wspd!=null?wspd.toFixed(1)+'m/s':''} ${WIND_DIR[dirIdx]||''}</div>
-      </div>`;
+      times.push(String(t.getHours()).padStart(2,'0'));
+      icons.push(wmoIcon(hr.weather_code ? hr.weather_code[i] : 0));
+      var tmp = hr.temperature_2m ? hr.temperature_2m[i] : null;
+      temps.push(tmp!=null ? tmp.toFixed(1)+'\u00B0' : '--');
+      var rain = hr.precipitation ? hr.precipitation[i] : null;
+      rains.push(rain!=null ? rain.toFixed(1) : '--');
+      var ws = hr.wind_speed_10m ? hr.wind_speed_10m[i] : null;
+      winds.push(ws!=null ? ws.toFixed(0) : '--');
     }
-    body.innerHTML=h||'<div style="color:#94a3b8">予報データなし</div>';
-  } catch(e) {
-    console.error('Pinpoint:',e);
-    body.innerHTML='<div style="color:#ef4444">取得失敗</div>';
+    var cs = 'padding:2px 4px;text-align:center;white-space:nowrap;min-width:32px;font-size:0.68rem;border-right:1px solid rgba(0,0,0,0.04)';
+    var hs = 'padding:2px 4px;text-align:left;white-space:nowrap;font-weight:600;color:#64748b;font-size:0.68rem;position:sticky;left:0;background:#f8fafc;z-index:1;min-width:36px';
+    h += '<table style="border-collapse:collapse;width:max-content">';
+    h += '<tr style="background:rgba(0,0,0,0.03)"><td style="'+hs+'">時刻</td>';
+    for (var j=0;j<times.length;j++) h += '<td style="'+cs+';font-weight:600;color:#475569">'+times[j]+'</td>';
+    h += '</tr><tr><td style="'+hs+'">天気</td>';
+    for (var j=0;j<icons.length;j++) h += '<td style="'+cs+';font-size:0.82rem">'+icons[j]+'</td>';
+    h += '</tr><tr style="background:rgba(0,0,0,0.015)"><td style="'+hs+'">気温</td>';
+    for (var j=0;j<temps.length;j++) h += '<td style="'+cs+';color:#ef4444;font-weight:500">'+temps[j]+'</td>';
+    h += '</tr><tr><td style="'+hs+'">降水</td>';
+    for (var j=0;j<rains.length;j++) {
+      var rc = parseFloat(rains[j]) > 0 ? '#2563eb' : '#94a3b8';
+      h += '<td style="'+cs+';color:'+rc+'">'+rains[j]+'</td>';
+    }
+    h += '</tr><tr style="background:rgba(0,0,0,0.015)"><td style="'+hs+'">風速</td>';
+    for (var j=0;j<winds.length;j++) h += '<td style="'+cs+';color:#64748b">'+winds[j]+'</td>';
+    h += '</tr></table></div>';
   }
+
+  // === 週間予報 (横テーブル: 日付が列) ===
+  if (dy && dy.time) {
+    h += '<div style="font-weight:600;font-size:0.75rem;color:#334155;margin:8px 0 4px">📅 週間予報</div>';
+    h += '<div style="overflow-x:auto">';
+    var dDates=[], dIcons=[], dMaxs=[], dMins=[], dRains=[];
+    for (var i=0; i<dy.time.length; i++) {
+      var dt = new Date(dy.time[i]+'T00:00:00');
+      var day = dayNames[dt.getDay()];
+      var dc = dt.getDay()===0?'#ef4444':dt.getDay()===6?'#2563eb':'#334155';
+      dDates.push({label:(dt.getMonth()+1)+'/'+dt.getDate()+'('+day+')', color:dc});
+      dIcons.push(wmoIcon(dy.weather_code ? dy.weather_code[i] : 0));
+      var tmax = dy.temperature_2m_max ? dy.temperature_2m_max[i] : null;
+      var tmin = dy.temperature_2m_min ? dy.temperature_2m_min[i] : null;
+      dMaxs.push(tmax!=null ? tmax.toFixed(0)+'\u00B0' : '--');
+      dMins.push(tmin!=null ? tmin.toFixed(0)+'\u00B0' : '--');
+      var dr = dy.precipitation_sum ? dy.precipitation_sum[i] : null;
+      dRains.push(dr!=null ? dr.toFixed(1) : '--');
+    }
+    var cs2 = 'padding:3px 6px;text-align:center;white-space:nowrap;min-width:48px;font-size:0.7rem;border-right:1px solid rgba(0,0,0,0.04)';
+    var hs2 = 'padding:3px 4px;text-align:left;white-space:nowrap;font-weight:600;color:#64748b;font-size:0.7rem;position:sticky;left:0;background:#f8fafc;z-index:1;min-width:36px';
+    h += '<table style="border-collapse:collapse;width:max-content">';
+    h += '<tr style="background:rgba(0,0,0,0.03)"><td style="'+hs2+'">日付</td>';
+    for (var j=0;j<dDates.length;j++) h += '<td style="'+cs2+';font-weight:600;color:'+dDates[j].color+'">'+dDates[j].label+'</td>';
+    h += '</tr><tr><td style="'+hs2+'">天気</td>';
+    for (var j=0;j<dIcons.length;j++) h += '<td style="'+cs2+';font-size:0.9rem">'+dIcons[j]+'</td>';
+    h += '</tr><tr style="background:rgba(0,0,0,0.015)"><td style="'+hs2+'">最高</td>';
+    for (var j=0;j<dMaxs.length;j++) h += '<td style="'+cs2+';color:#ef4444;font-weight:500">'+dMaxs[j]+'</td>';
+    h += '</tr><tr><td style="'+hs2+'">最低</td>';
+    for (var j=0;j<dMins.length;j++) h += '<td style="'+cs2+';color:#2563eb;font-weight:500">'+dMins[j]+'</td>';
+    h += '</tr><tr style="background:rgba(0,0,0,0.015)"><td style="'+hs2+'">降水</td>';
+    for (var j=0;j<dRains.length;j++) {
+      var rv = parseFloat(dRains[j]);
+      var rcc = rv > 0 ? '#2563eb' : '#94a3b8';
+      h += '<td style="'+cs2+';color:'+rcc+'">'+dRains[j]+'</td>';
+    }
+    h += '</tr></table></div>';
+  }
+
+  h += '<div style="text-align:right;font-size:0.58rem;color:#94a3b8;margin-top:4px">Open-Meteo JMA (MSM/GSM)</div>';
+  return h;
 }
 
-// ============================================================
-// STATION FORECAST (Open-Meteo for AMEDAS popup)
-// ============================================================
 async function loadStationForecast(stationId, station) {
   const container = document.getElementById(`popup-fc-${stationId}`);
   if (!container) return;
+  if (container.dataset.loaded === '1') return;
 
   try {
     const url = `https://api.open-meteo.com/v1/jma?latitude=${station.lat}&longitude=${station.lon}&hourly=temperature_2m,precipitation,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=Asia/Tokyo&forecast_days=7`;
     const r = await fetch(url);
     const data = await r.json();
-    const hr = data.hourly;
-    const dy = data.daily;
-
-    let h = '';
-
-    // === 24時間予報 (1日予報) ===
-    if (hr && hr.time) {
-      h += '<div style="font-weight:700;font-size:0.78rem;color:#2563eb;margin-bottom:4px">⏱️ 24時間予報</div>';
-      h += '<div style="display:flex;gap:2px;overflow-x:auto;padding-bottom:4px;margin-bottom:8px">';
-      const now = new Date();
-      let count = 0;
-      for (let i = 0; i < hr.time.length && count < 24; i++) {
-        const t = new Date(hr.time[i]);
-        if (t < now) continue;
-        if (count % 3 !== 0) { count++; continue; } // 3時間間隔
-        count++;
-        const hh = String(t.getHours()).padStart(2,'0');
-        const temp = hr.temperature_2m[i];
-        const rain = hr.precipitation[i];
-        const wcode = hr.weather_code[i];
-        h += `<div style="text-align:center;min-width:38px;padding:3px 2px;background:rgba(0,0,0,0.02);border-radius:6px;font-size:0.68rem">
-          <div style="color:#64748b">${hh}時</div>
-          <div style="font-size:0.9rem">${wmoIcon(wcode)}</div>
-          <div style="font-weight:700">${temp!=null?temp.toFixed(0)+'°':'--'}</div>
-          <div style="color:#2563eb;font-size:0.62rem">${rain>0?rain.toFixed(1)+'mm':'-'}</div>
-        </div>`;
-      }
-      h += '</div>';
-    }
-
-    // === 週間予報 ===
-    if (dy && dy.time) {
-      h += '<div style="font-weight:700;font-size:0.78rem;color:#2563eb;margin-bottom:4px">📅 週間予報</div>';
-      const dayNames = ['日','月','火','水','木','金','土'];
-      dy.time.forEach((t, i) => {
-        const dt = new Date(t);
-        const day = dayNames[dt.getDay()];
-        const dayColor = dt.getDay()===0?'#ef4444':dt.getDay()===6?'#2563eb':'#1e293b';
-        const wcode = dy.weather_code ? dy.weather_code[i] : null;
-        const tmax = dy.temperature_2m_max ? dy.temperature_2m_max[i] : null;
-        const tmin = dy.temperature_2m_min ? dy.temperature_2m_min[i] : null;
-        const rain = dy.precipitation_sum ? dy.precipitation_sum[i] : null;
-        h += `<div style="display:flex;align-items:center;padding:2px 0;border-bottom:1px solid rgba(0,0,0,0.04);font-size:0.72rem">
-          <span style="width:52px;font-weight:600;color:${dayColor}">${dt.getMonth()+1}/${dt.getDate()}(${day})</span>
-          <span style="width:22px;text-align:center;font-size:0.85rem">${wmoIcon(wcode)}</span>
-          <span style="flex:1;text-align:center"><span style="color:#2563eb">${tmin!=null?tmin.toFixed(0):'--'}°</span> / <span style="color:#ef4444">${tmax!=null?tmax.toFixed(0):'--'}°</span></span>
-          <span style="width:45px;text-align:right;color:#2563eb">${rain>0?rain.toFixed(1)+'mm':'-'}</span>
-        </div>`;
-      });
-    }
-
-    container.innerHTML = h || '<div style="color:#94a3b8;font-size:0.75rem">予報データなし</div>';
+    container.innerHTML = buildForecastHtml(data);
+    container.dataset.loaded = '1';
   } catch(e) {
-    console.error('Station forecast error:', e);
-    container.innerHTML = '<div style="color:#ef4444;font-size:0.75rem">予報取得失敗</div>';
+    if (container) container.innerHTML = '<div style="color:#ef4444;font-size:0.75rem">予報取得失敗</div>';
   }
 }
 
+
+
 function closePinpoint() {
-  document.getElementById('pinpointPanel').classList.remove('active');
-  if(window._ppMarker) { map.removeLayer(window._ppMarker); window._ppMarker=null; }
+  if (window._ppMarker) { map.removeLayer(window._ppMarker); window._ppMarker = null; }
+  var pp = document.getElementById('pinpointPanel');
+  if (pp) pp.classList.remove('active');
 }
 
 // ============================================================
@@ -988,9 +1043,56 @@ function renderEarthquake(list) {
 // ============================================================
 // REFRESH
 // ============================================================
+
+async function loadTyphoon() {
+  const panel = document.getElementById('typhoonPanel');
+  try {
+    const res = await fetch('https://www.jma.go.jp/bosai/typhoon/data/targetTimes.json');
+    if (!res.ok) throw new Error('no data');
+    const times = await res.json();
+    if (!times || times.length === 0) throw new Error('no typhoon');
+    const basetime = times[0].basetime;
+    const dres = await fetch(`https://www.jma.go.jp/bosai/typhoon/data/${basetime}/all.json`);
+    if (!dres.ok) throw new Error('fetch fail');
+    const typhoons = await dres.json();
+    if (!typhoons || typhoons.length === 0) throw new Error('no typhoon');
+
+    let h = '';
+    typhoons.forEach(ty => {
+      const name = ty.name || '不明';
+      const num = ty.number || '';
+      const klass = ty.class || '';
+      // 最新の実況データ
+      const real = ty.real || [];
+      const latest = real.length > 0 ? real[real.length - 1] : null;
+      let lat = '--', lon = '--', pressure = '--', maxWind = '--', direction = '--', speed = '--';
+      if (latest) {
+        lat = latest.lat ? (latest.lat/10).toFixed(1) + '°N' : '--';
+        lon = latest.lon ? (latest.lon/10).toFixed(1) + '°E' : '--';
+        pressure = latest.pressure || '--';
+        maxWind = latest.maxWind || '--';
+        direction = latest.direction || '--';
+        speed = latest.speed || '--';
+      }
+      h += `<div style="padding:10px;border-radius:10px;margin-bottom:8px;background:rgba(239,68,68,0.05);border:1px solid rgba(239,68,68,0.15)">
+        <div style="font-weight:700;font-size:0.88rem;color:#ef4444;margin-bottom:6px">🌀 台風${num}号 ${name}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:0.72rem;color:#475569">
+          <span>📍 ${lat}, ${lon}</span>
+          <span>🔵 ${pressure}hPa</span>
+          <span>💨 最大風速 ${maxWind}m/s</span>
+          <span>➡️ ${direction} ${speed}km/h</span>
+        </div>
+      </div>`;
+    });
+    panel.innerHTML = h;
+  } catch(e) {
+    panel.innerHTML = '<div style="color:#10b981;font-size:0.8rem;text-align:center;padding:16px">✅ 現在、台風情報はありません</div>';
+  }
+}
+
 async function refreshAll() {
   document.getElementById('updateTime').textContent='更新中...';
-  await Promise.all([loadAmedas(),loadForecast(),loadWarnings(),loadRadar(),loadEarthquake()]);
+  await Promise.all([loadAmedas(),loadForecast(),loadWarnings(),loadRadar(),loadEarthquake(),loadTyphoon()]);
 }
 
 // ============================================================
