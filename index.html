@@ -401,24 +401,16 @@ body {
       <div class="legend-row"><div class="legend-color" style="background:#b010a0"></div>50〜80</div>
       <div class="legend-row"><div class="legend-color" style="background:#600060"></div>80+</div>
     </div>
-    <div class="pinpoint-info glass glass-strong" id="pinpointPanel">
-      <div class="pp-header">
-        <div class="pp-title" id="ppTitle">📍 ピンポイント予報</div>
-        <button class="pp-close" onclick="closePinpoint()">✕</button>
-      </div>
-      <div class="pp-body" id="ppBody">
-        <div class="loading"><div class="spinner"></div>読み込み中...</div>
-      </div>
-    </div>
+
   </div>
 
   <!-- RIGHT PANEL -->
   <div class="right-panel">
     <!-- Current -->
     <div class="glass">
-      <div class="card-header"><span class="icon">📊</span>現在の気象状況（佐賀）</div>
-      <div class="card-body" id="currentPanel">
-        <div class="loading"><div class="spinner"></div>データ読み込み中...</div>
+      <div class="card-header"><span class="icon">📍</span>地点詳細情報</div>
+      <div class="card-body" id="spotPanel">
+        <div style="text-align:center;padding:24px 12px;color:#94a3b8;font-size:0.82rem;"><div style="font-size:2rem;margin-bottom:8px;">🗺️</div>地図上の地点またはマーカーをクリックすると<br>詳細情報がここに表示されます</div>
       </div>
     </div>
 
@@ -560,52 +552,16 @@ map.on('click', function(e) {
     // 既存ピンポイントマーカー削除
     if (window._ppMarker) { map.removeLayer(window._ppMarker); window._ppMarker = null; }
 
-    var uid = 'pp_' + Date.now();
-    
-    // [수정 포인트 1] 문자열 대신 DOM 요소를 직접 생성합니다.
-    var popupDiv = document.createElement('div');
-    popupDiv.style.minWidth = '280px';
-    popupDiv.innerHTML = '<b style="color:#2563eb;font-size:0.9rem">📍 ' + lat.toFixed(4) + ', ' + lng.toFixed(4) + '</b>'
-      + '<div style="font-size:0.68rem;color:#94a3b8;margin-bottom:6px">Open-Meteo JMA (MSM/GSM)</div>'
-      + '<div id="' + uid + '" style="border-top:1px solid rgba(0,0,0,0.08);padding-top:6px">'
-      + '<div style="display:flex;align-items:center;gap:4px;color:#64748b;font-size:0.75rem;padding:8px 0">'
-      + '<div class="spinner" style="width:14px;height:14px;border-width:2px"></div>予報読み込み中...</div>'
-      + '</div>';
-
+    // ピンポイントマーカーを地図に追加（位置表示のみ）
     var ppIcon = L.divIcon({
-      html:'<div style="background:#2563eb;color:white;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:0.8rem;box-shadow:0 2px 8px rgba(0,0,0,0.3)">📍</div>',
-      className:'', iconSize:[28,28], iconAnchor:[14,14]
+      className: 'marker-icon normal',
+      html: '<div class="marker-label" style="background:rgba(16,185,129,0.15);color:#059669;border-color:rgba(16,185,129,0.3)">📍</div>',
+      iconSize: [44,44], iconAnchor: [22,22]
     });
+    window._ppMarker = L.marker([lat, lng], {icon: ppIcon}).addTo(map);
 
-    window._ppMarker = L.marker([lat,lng], {icon: ppIcon}).addTo(map);
-    
-    // [수정 포인트 2] 문자열(popupHtml) 대신 DOM 요소(popupDiv)를 넘깁니다.
-    window._ppMarker.bindPopup(popupDiv, {maxWidth:380, minWidth:280});
-
-    // popupopenイベントで予報取得
-    window._ppMarker.on('popupopen', async function() {
-      // [수정 포인트 3] document 탐색이 실패하더라도 생성한 popupDiv 내부에서 찾도록 이중 확인
-      var container = document.getElementById(uid) || popupDiv.querySelector('#' + uid);
-      
-      if (!container || container.dataset.loaded === '1') return;
-      
-      try {
-        var url = 'https://api.open-meteo.com/v1/jma?latitude=' + lat + '&longitude=' + lng
-          + '&hourly=temperature_2m,precipitation,weather_code,wind_speed_10m'
-          + '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum'
-          + '&timezone=Asia/Tokyo&forecast_days=7';
-        var r = await fetch(url);
-        var data = await r.json();
-        container.innerHTML = buildForecastHtml(data);
-        container.dataset.loaded = '1';
-        if (window._ppMarker) window._ppMarker.getPopup().update();
-      } catch(err) {
-        if (container) container.innerHTML = '<div style="color:#ef4444;font-size:0.75rem">予報取得失敗</div>';
-      }
-    });
-
-    // マーカーをクリックしてポップアップを開く
-    window._ppMarker.fire('click');
+    // 右パネルに詳細情報を表示
+    showPinpointDetail(lat, lng);
   });
 }
 
@@ -657,10 +613,9 @@ async function loadAmedas() {
     if (dr.ok) amedasData = await dr.json();
     document.getElementById('updateTime').textContent = `${y}/${m}/${d} ${h}:${mn} JST`;
     updateMarkers();
-    updateCurrent();
   } catch(e) {
     console.error('AMEDAS:',e);
-    document.getElementById('currentPanel').innerHTML='<div style="color:#ef4444;padding:8px">データ取得失敗</div>';
+    document.getElementById('spotPanel').innerHTML='<div style="color:#ef4444;padding:8px">データ取得失敗</div>';
   }
 }
 
@@ -686,44 +641,31 @@ function updateMarkers() {
     else if (currentDisplay==='wind') { val=wind!=null?`${wind}`:'--'; cls=wind>=10?'hot':wind>=5?'rain':'normal'; }
     else { val=rain!=null?(rain>0?`${rain}`:'0'):'--'; cls=rain>10?'hot':rain>0?'rain':'normal'; }
 
-    const icon = L.divIcon({
-      html:`<div class="station-marker ${cls}">${val}</div>`,
-      className:'',iconSize:[38,38],iconAnchor:[19,19]
+    const icon=L.divIcon({className:'marker-icon '+cls,html:`<div class="marker-label">${val}</div>`,iconSize:[44,44],iconAnchor:[22,22]});
+    const m=L.marker([st.lat,st.lon],{icon}).addTo(map);
+
+    m.on('click', function() {
+      showSpotDetail(id, st, amedasData[id]);
     });
-    const popupDiv = document.createElement('div');
-    popupDiv.style.cssText = 'font-size:0.82rem;line-height:1.6;min-width:280px';
-    popupDiv.innerHTML = `
-      <b style="color:#2563eb;font-size:0.95rem">📍 ${st.name}</b>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin:6px 0;padding:6px;background:rgba(0,0,0,0.03);border-radius:8px">
-        <span>🌡️ ${temp!=null?temp+'℃':'--'}</span><span>💧 ${hum!=null?hum+'%':'--'}</span>
-        <span>💨 ${wind!=null?wind+'m/s':'--'} ${windText(wdir)}</span><span>☔ ${rain!=null?rain+'mm/h':'--'}</span>
-      </div>
-      <div id="popup-fc-${id}" style="border-top:1px solid rgba(0,0,0,0.08);padding-top:6px;margin-top:4px">
-        <div style="display:flex;align-items:center;gap:4px;color:#64748b;font-size:0.75rem"><div class="spinner" style="width:14px;height:14px;border-width:2px;margin-right:4px"></div>予報読み込み中...</div>
-      </div>
-    `;
-    const mk = L.marker([st.lat,st.lon],{icon}).bindPopup(popupDiv,{maxWidth:320,minWidth:280}).addTo(map);
-    mk.on('popupopen', () => loadStationForecast(id, st));
-    markers.push(mk);
+
+    markers.push(m);
   });
 
-  // === USER SPOTS (ユーザー地点) ===
-  Object.entries(USER_SPOTS).forEach(([id, sp]) => {
-    const icon = L.divIcon({
-      html: `<div style="font-size:0.65rem;font-weight:700;padding:2px 5px;border-radius:6px;white-space:nowrap;text-align:center;border:1.5px solid rgba(255,255,255,0.8);box-shadow:0 1px 4px rgba(0,0,0,0.15);min-width:32px;background:#fef3c7;color:#92400e">${sp.icon}${sp.name.substring(0,4)}</div>`,
-      className:'', iconSize:[60,20], iconAnchor:[30,10]
+  // ユーザー地点マーカー
+  Object.entries(USER_SPOTS).forEach(function([uid, ust]) {
+    var spotIcon = ust.icon || '⭐';
+    var uIcon = L.divIcon({
+      className: 'marker-icon normal',
+      html: '<div class="marker-label" style="background:rgba(139,92,246,0.15);color:#7c3aed;border-color:rgba(139,92,246,0.3)">' + spotIcon + '</div>',
+      iconSize: [44,44], iconAnchor: [22,22]
     });
-    const popupId = `popup-fc-${id}`;
-    const popupHtml = `<div style="min-width:280px">
-      <div style="font-weight:700;font-size:0.9rem;color:#2563eb;margin-bottom:4px">${sp.icon} ${sp.name}</div>
-      <div style="font-size:0.68rem;color:#94a3b8;margin-bottom:6px">${sp.lat.toFixed(4)}, ${sp.lon.toFixed(4)}</div>
-      <div id="${popupId}" style="border-top:1px solid rgba(0,0,0,0.08);padding-top:6px">
-        <div class="loading" style="padding:8px 0"><div class="spinner" style="width:14px;height:14px;border-width:2px;margin-right:6px"></div>予報読み込み中...</div>
-      </div>
-    </div>`;
-    const mk = L.marker([sp.lat, sp.lon], {icon}).bindPopup(popupHtml, {maxWidth:340, minWidth:280}).addTo(map);
-    mk.on('popupopen', () => loadStationForecast(id, sp));
-    markers.push(mk);
+    var um = L.marker([ust.lat, ust.lon], {icon: uIcon}).addTo(map);
+
+    um.on('click', function() {
+      showSpotDetail(uid, Object.assign({type:'user'}, ust), null);
+    });
+
+    markers.push(um);
   });
 }
 
@@ -734,34 +676,82 @@ function toggleDisplay(type) {
   updateMarkers();
 }
 
-function updateCurrent() {
-  const s=amedasData['85142'];
-  if (!s) { document.getElementById('currentPanel').innerHTML='<div style="color:#94a3b8">データなし</div>'; return; }
+// === 지점 상세 정보를 우측 패널에 표시 ===
+function showSpotDetail(stationId, station, amedasObs) {
+  var panel = document.getElementById('spotPanel');
+  if (!panel) return;
 
-  const items = [
-    {icon:'🌡️',label:'気温',value:s.temp?s.temp[0]+'℃':'--'},
-    {icon:'💧',label:'湿度',value:s.humidity?s.humidity[0]+'%':'--'},
-    {icon:'💨',label:'風速',value:s.wind?s.wind[0]+'m/s':'--'},
-    {icon:'🧭',label:'風向',value:s.windDirection?windText(s.windDirection[0]):'--'},
-    {icon:'☔',label:'1h降水',value:s.precipitation1h?s.precipitation1h[0]+'mm':'--'},
-    {icon:'📊',label:'気圧',value:s.normalPressure?s.normalPressure[0]+'hPa':'--'},
-  ];
+  var isUser = station.type === 'user';
+  var badge = isUser
+    ? '<span style="background:#8b5cf6;color:#fff;font-size:0.6rem;padding:1px 6px;border-radius:8px;margin-left:6px">ユーザー</span>'
+    : '<span style="background:#2563eb;color:#fff;font-size:0.6rem;padding:1px 6px;border-radius:8px;margin-left:6px">AMeDAS</span>';
 
-  let h='<div class="conditions-grid">';
-  items.forEach(i=>{
-    h+=`<div class="cond-item"><div class="cond-icon">${i.icon}</div><div class="cond-label">${i.label}</div><div class="cond-value">${i.value}</div></div>`;
-  });
-  h+='</div>';
+  var h = '<div style="margin-bottom:10px">';
+  h += '<div style="font-weight:700;font-size:0.95rem;color:#1e293b">' + station.name + badge + '</div>';
+  h += '<div style="font-size:0.68rem;color:#94a3b8">' + station.lat.toFixed(4) + ', ' + station.lon.toFixed(4) + '</div>';
+  h += '</div>';
 
-  h+='<div class="stations-summary"><div class="title">県内観測所</div><div class="station-chips">';
-  Object.entries(STATIONS).forEach(([id,st])=>{
-    const d=amedasData[id];
-    const t=d&&d.temp?d.temp[0]:'--';
-    const r=d&&d.precipitation1h?d.precipitation1h[0]:0;
-    h+=`<div class="station-chip">${st.name} <b>${t}℃</b>${r>0?' 🌧':''}</div>`;
-  });
-  h+='</div></div>';
-  document.getElementById('currentPanel').innerHTML=h;
+  if (amedasObs) {
+    var items = [
+      {icon:'🌡️',label:'気温',value:amedasObs.temp?amedasObs.temp[0]+'℃':'--'},
+      {icon:'💧',label:'湿度',value:amedasObs.humidity?amedasObs.humidity[0]+'%':'--'},
+      {icon:'💨',label:'風速',value:amedasObs.wind?amedasObs.wind[0]+'m/s':'--'},
+      {icon:'🧭',label:'風向',value:amedasObs.windDirection?windText(amedasObs.windDirection[0]):'--'},
+      {icon:'☔',label:'1h降水',value:amedasObs.precipitation1h?amedasObs.precipitation1h[0]+'mm':'--'},
+      {icon:'📊',label:'気圧',value:amedasObs.normalPressure?amedasObs.normalPressure[0]+'hPa':'--'},
+    ];
+    h += '<div class="conditions-grid">';
+    items.forEach(function(i) {
+      h += '<div class="cond-item"><span class="cond-icon">' + i.icon + '</span><span class="cond-label">' + i.label + '</span><span class="cond-value">' + i.value + '</span></div>';
+    });
+    h += '</div>';
+  }
+
+  var uid = 'spot-fc-' + stationId;
+  h += '<div id="' + uid + '" style="border-top:1px solid rgba(0,0,0,0.06);margin-top:10px;padding-top:10px">';
+  h += '<div class="loading"><div class="spinner"></div>予報読み込み中...</div>';
+  h += '</div>';
+
+  panel.innerHTML = h;
+  panel.scrollIntoView({behavior:'smooth', block:'start'});
+  loadSpotForecast(uid, station.lat, station.lon);
+}
+
+async function loadSpotForecast(containerId, lat, lon) {
+  var container = document.getElementById(containerId);
+  if (!container) return;
+  try {
+    var url = 'https://api.open-meteo.com/v1/jma?latitude=' + lat + '&longitude=' + lon
+      + '&hourly=temperature_2m,precipitation,weather_code,wind_speed_10m'
+      + '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum'
+      + '&timezone=Asia/Tokyo&forecast_days=7';
+    var r = await fetch(url);
+    var data = await r.json();
+    container.innerHTML = buildForecastHtml(data);
+  } catch(e) {
+    container.innerHTML = '<div style="color:#ef4444;font-size:0.75rem;padding:8px">予報の取得に失敗しました</div>';
+  }
+}
+
+function showPinpointDetail(lat, lng) {
+  var panel = document.getElementById('spotPanel');
+  if (!panel) return;
+
+  var h = '<div style="margin-bottom:10px">';
+  h += '<div style="font-weight:700;font-size:0.95rem;color:#1e293b">📍 ピンポイント地点';
+  h += '<span style="background:#10b981;color:#fff;font-size:0.6rem;padding:1px 6px;border-radius:8px;margin-left:6px">ピンポイント</span></div>';
+  h += '<div style="font-size:0.68rem;color:#94a3b8">' + lat.toFixed(4) + ', ' + lng.toFixed(4) + '</div>';
+  h += '<div style="font-size:0.65rem;color:#64748b;margin-top:2px">Open-Meteo JMA (MSM/GSM)</div>';
+  h += '</div>';
+
+  var uid = 'spot-fc-pp';
+  h += '<div id="' + uid + '" style="border-top:1px solid rgba(0,0,0,0.06);margin-top:10px;padding-top:10px">';
+  h += '<div class="loading"><div class="spinner"></div>予報読み込み中...</div>';
+  h += '</div>';
+
+  panel.innerHTML = h;
+  panel.scrollIntoView({behavior:'smooth', block:'start'});
+  loadSpotForecast(uid, lat, lng);
 }
 
 // ============================================================
@@ -924,29 +914,11 @@ function buildForecastHtml(data) {
   return h;
 }
 
-async function loadStationForecast(stationId, station) {
-  const container = document.getElementById(`popup-fc-${stationId}`);
-  if (!container) return;
-  if (container.dataset.loaded === '1') return;
-
-  try {
-    const url = `https://api.open-meteo.com/v1/jma?latitude=${station.lat}&longitude=${station.lon}&hourly=temperature_2m,precipitation,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=Asia/Tokyo&forecast_days=7`;
-    const r = await fetch(url);
-    const data = await r.json();
-    container.innerHTML = buildForecastHtml(data);
-    container.dataset.loaded = '1';
-  } catch(e) {
-    if (container) container.innerHTML = '<div style="color:#ef4444;font-size:0.75rem">予報取得失敗</div>';
-  }
-}
 
 
 
-function closePinpoint() {
-  if (window._ppMarker) { map.removeLayer(window._ppMarker); window._ppMarker = null; }
-  var pp = document.getElementById('pinpointPanel');
-  if (pp) pp.classList.remove('active');
-}
+
+
 
 // ============================================================
 // WARNINGS
