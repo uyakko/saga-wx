@@ -483,6 +483,11 @@ const USER_SPOTS = {
   'usr_imari':   {name:'伊万里湾大花火メイン会場', lat:33.3304073, lon:129.8344106, icon:'🎆'}
 };
 
+// 台風の最接近時刻を計算する基準点（佐賀県庁）
+const SAGA_OFFICE = { lat: 33.2494385, lon: 130.2988042, name: '佐賀県庁' };
+// 複数の台風がある場合に経路を色分けするためのパレット
+const TYPHOON_COLORS = ['#ef4444', '#7c3aed', '#0ea5e9', '#f59e0b'];
+
 const WARN_NAMES = {
   '02':'暴風雪警報','03':'大雨警報','04':'洪水警報','05':'暴風警報',
   '06':'大雪警報','07':'波浪警報','08':'高潮警報',
@@ -543,6 +548,15 @@ function initMap() {
     [33.35,130.55],[33.20,130.55],[33.05,130.45],[33.00,130.20],
     [33.05,129.95],[33.10,129.80],[33.25,129.73],[33.40,129.75],[33.55,129.75]
   ],{color:'#2563eb',weight:2,opacity:0.4,dashArray:'6,4'}).addTo(map);
+
+  // 佐賀県庁マーカー（台風の最接近基準点）
+  L.marker([SAGA_OFFICE.lat, SAGA_OFFICE.lon], {
+    icon: L.divIcon({
+      className: 'marker-icon normal',
+      html: '<div class="marker-label" style="background:rgba(37,99,235,0.15);color:#1e40af;border-color:rgba(37,99,235,0.3)">🏛️</div>',
+      iconSize: [44,44], iconAnchor: [22,22]
+    })
+  }).addTo(map).bindPopup('佐賀県庁');
 
   // クリックでピンポイント予報
 map.on('click', function(e) {
@@ -1021,37 +1035,148 @@ function renderEarthquake(list) {
 }
 
 // ============================================================
-// REFRESH
+// TYPHOON HELPERS
 // ============================================================
 
+// 2点間の距離(km) - ハバーサイン公式
+function haversineKm(lat1, lon1, lat2, lon2) {
+  const R = 6371, toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+// specifications.json の position フィールドから緯度・経度を推定（非公式APIのためフィールド名を仮定せず数値範囲で探索）
+function extractLatLon(position) {
+  if (!position) return null;
+  const nums = [];
+  (function walk(o) {
+    if (o == null) return;
+    if (typeof o === 'number') { nums.push(o); return; }
+    if (typeof o === 'string') {
+      const m = o.match(/-?\d+(\.\d+)?/);
+      if (m) nums.push(parseFloat(m[0]));
+      return;
+    }
+    if (typeof o === 'object') Object.values(o).forEach(walk);
+  })(position.deg || position.dm || position);
+  const lat = nums.find(n => n >= 0 && n <= 60);
+  const lon = nums.find(n => n >= 90 && n <= 200);
+  return (lat != null && lon != null) ? { lat, lon } : null;
+}
+
+// レコード内のISO8601形式の日時フィールドを探す
+function findISODate(record) {
+  for (const k in record) {
+    const v = record[k];
+    if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(v)) return new Date(v);
+  }
+  return null;
+}
+
+function fmtDateTime(d) {
+  const days = ['日','月','火','水','木','金','土'];
+  return `${d.getMonth()+1}/${d.getDate()}(${days[d.getDay()]}) ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+
+// 線分 p1-p2 上で target に最も近い点・時刻・距離を求める（簡易平面近似）
+function closestApproachOnSegment(p1, p2, target) {
+  const latRef = (p1.lat + p2.lat) / 2;
+  const k = Math.cos(latRef * Math.PI / 180);
+  const x1 = p1.lon * k, y1 = p1.lat, x2 = p2.lon * k, y2 = p2.lat;
+  const xt = target.lon * k, yt = target.lat;
+  const dx = x2 - x1, dy = y2 - y1;
+  const len2 = dx*dx + dy*dy;
+  let t = len2 === 0 ? 0 : ((xt - x1) * dx + (yt - y1) * dy) / len2;
+  t = Math.max(0, Math.min(1, t));
+  const lat = p1.lat + t * (p2.lat - p1.lat);
+  const lon = p1.lon + t * (p2.lon - p1.lon);
+  const dist = haversineKm(lat, lon, target.lat, target.lon);
+  const time = (p1.time && p2.time) ? new Date(p1.time.getTime() + t * (p2.time.getTime() - p1.time.getTime())) : null;
+  return { t, lat, lon, dist, time };
+}
+
+// 台風の経路点(points, 時刻順)の中から target に最も近づく地点・時刻を探す
+function findClosestApproach(points, target) {
+  if (!points.length) return null;
+  if (points.length === 1) {
+    return {
+      lat: points[0].lat, lon: points[0].lon,
+      dist: haversineKm(points[0].lat, points[0].lon, target.lat, target.lon),
+      time: points[0].time
+    };
+  }
+  let best = null;
+  for (let i = 0; i < points.length - 1; i++) {
+    const r = closestApproachOnSegment(points[i], points[i+1], target);
+    if (!best || r.dist < best.dist) best = r;
+  }
+  return best;
+}
+
+// ============================================================
+// TYPHOON
+// ============================================================
 async function loadTyphoon() {
   const panel = document.getElementById('typhoonPanel');
+
+  // 地図上の台風レイヤーを準備（毎回クリアして再描画）
+  if (!window._typhoonLayerGroup) window._typhoonLayerGroup = L.layerGroup().addTo(map);
+  window._typhoonLayerGroup.clearLayers();
+
   try {
-    // 1) 발생 중인 태풍 목록 (eventId 목록)
+    // 1) 現在発生中の台風一覧（eventId 一覧）
     const listRes = await fetch('https://www.jma.go.jp/bosai/typhoon/data/targetTc.json');
     if (!listRes.ok) throw new Error('no data');
     const list = await listRes.json();
     if (!list || list.length === 0) throw new Error('no typhoon');
 
     let h = '';
+    let colorIdx = 0;
+
     for (const item of list) {
-      const eventId = item.tropicalCyclone; // 예: "TC2604"
+      const eventId = item.tropicalCyclone; // 例: "TC2604"
       try {
+        // 2) 各台風の詳細（実況 + 予報12/24/45/69時間後）
         const specRes = await fetch(`https://www.jma.go.jp/bosai/typhoon/data/${eventId}/specifications.json`);
         if (!specRes.ok) continue;
         const specs = await specRes.json();
-        const current = (Array.isArray(specs) && (specs.find(s => s.part && s.part.jp === '実況') || specs[0])) || null;
-        if (!current) continue;
+        if (!Array.isArray(specs) || !specs.length) continue;
 
+        // 経路点（緯度・経度・時刻）を抽出
+        const points = [];
+        specs.forEach(rec => {
+          const ll = extractLatLon(rec.position);
+          const time = findISODate(rec);
+          if (ll && time) {
+            points.push({ lat: ll.lat, lon: ll.lon, time, label: (rec.part && rec.part.jp) || '', pressure: rec.pressure });
+          } else {
+            console.warn('Typhoon point skipped (lat/lon or time not found):', rec);
+          }
+        });
+        if (!points.length) continue;
+        points.sort((a, b) => a.time - b.time);
+
+        const current = specs.find(s => s.part && s.part.jp === '実況') || specs[0];
         const name = (current.name && (current.name.ja || current.name.en || current.name)) || `第${item.typhoonNumber}号`;
         const number = item.typhoonNumber || '';
         const pressure = current.pressure ?? '--';
-        const sustained = current.maximumWind?.sustained?.['m/s'] ?? '--';
-        const gust = current.maximumWind?.gust?.['m/s'] ?? '--';
+        const sustained = current.maximumWind && current.maximumWind.sustained ? current.maximumWind.sustained['m/s'] : '--';
+        const gust = current.maximumWind && current.maximumWind.gust ? current.maximumWind.gust['m/s'] : '--';
         const location = current.location ?? '--';
         const course = current.course ?? '--';
-        const speed = current.speed?.['km/h'] ?? current.speed?.ja ?? current.speed ?? '--';
+        const speed = (current.speed && (current.speed['km/h'] ?? current.speed.ja)) ?? current.speed ?? '--';
         const intensity = current.intensity ? `（${current.intensity}）` : '';
+
+        // 3) 佐賀県庁への最接近時刻・距離（予報点を直線でつないだ近似値）
+        const cpa = findClosestApproach(points, SAGA_OFFICE);
+        let cpaHtml = '';
+        if (cpa && cpa.time) {
+          const near = cpa.dist < 300;
+          cpaHtml = `<div style="margin-top:6px;padding:6px 8px;border-radius:8px;background:${near?'rgba(239,68,68,0.1)':'rgba(37,99,235,0.08)'};font-size:0.72rem;color:${near?'#b91c1c':'#1e40af'}">
+            🎯 佐賀県庁 最接近予想: ${fmtDateTime(cpa.time)} 頃 / 約${Math.round(cpa.dist)}km
+          </div>`;
+        }
 
         h += `<div style="padding:10px;border-radius:10px;margin-bottom:8px;background:rgba(239,68,68,0.05);border:1px solid rgba(239,68,68,0.15)">
           <div style="font-weight:700;font-size:0.88rem;color:#ef4444;margin-bottom:6px">🌀 台風${number}号 ${name}${intensity}</div>
@@ -1061,17 +1186,51 @@ async function loadTyphoon() {
             <span>💨 最大風速 ${sustained}m/s（瞬間${gust}m/s）</span>
             <span>➡️ ${course} ${speed}km/h</span>
           </div>
+          ${cpaHtml}
         </div>`;
+
+        // 4) 地図に経路を描画
+        const color = TYPHOON_COLORS[colorIdx % TYPHOON_COLORS.length];
+        colorIdx++;
+        const latlngs = points.map(p => [p.lat, p.lon]);
+        if (latlngs.length >= 2) {
+          L.polyline(latlngs, { color, weight: 2.5, dashArray: '6,5', opacity: 0.85 }).addTo(window._typhoonLayerGroup);
+        }
+        points.forEach(p => {
+          const isCurrent = p.label === '実況';
+          L.circleMarker([p.lat, p.lon], {
+            radius: isCurrent ? 7 : 5,
+            color, weight: 2,
+            fillColor: isCurrent ? color : '#fff',
+            fillOpacity: isCurrent ? 0.9 : 0.7
+          }).bindPopup(`<b>${name}</b><br>${p.label || '予報'}<br>${fmtDateTime(p.time)}<br>${p.pressure ?? '--'}hPa`)
+            .addTo(window._typhoonLayerGroup);
+        });
+
+        // 5) 最接近点を地図上にも表示（佐賀県庁までの破線つき）
+        if (cpa) {
+          L.polyline([[cpa.lat, cpa.lon], [SAGA_OFFICE.lat, SAGA_OFFICE.lon]], {
+            color, weight: 1.5, dashArray: '2,4', opacity: 0.7
+          }).addTo(window._typhoonLayerGroup);
+          L.circleMarker([cpa.lat, cpa.lon], { radius: 4, color: '#fff', weight: 1, fillColor: color, fillOpacity: 1 })
+            .bindPopup(`最接近点<br>${cpa.time ? fmtDateTime(cpa.time) : ''}<br>約${Math.round(cpa.dist)}km`)
+            .addTo(window._typhoonLayerGroup);
+        }
       } catch (innerErr) {
-        console.error('Typhoon spec fetch error:', innerErr);
+        console.error('Typhoon spec error:', innerErr);
       }
     }
+
     panel.innerHTML = h || '<div style="color:#10b981;font-size:0.8rem;text-align:center;padding:16px">✅ 現在、台風情報はありません</div>';
-  } catch (e) {
+  } catch(e) {
     console.error('Typhoon:', e);
     panel.innerHTML = '<div style="color:#10b981;font-size:0.8rem;text-align:center;padding:16px">✅ 現在、台風情報はありません</div>';
   }
 }
+
+// ============================================================
+// REFRESH
+// ============================================================
 
 async function refreshAll() {
   document.getElementById('updateTime').textContent='更新中...';
