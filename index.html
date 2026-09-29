@@ -766,7 +766,7 @@ async function loadSpotForecast(containerId, lat, lon, balloon = false) {
   if (!container) return;
   let url = 'https://api.open-meteo.com/v1/jma?latitude=' + lat + '&longitude=' + lon
     + '&hourly=temperature_2m,precipitation,weather_code,wind_speed_10m,wind_direction_10m';
-  if (balloon) url += ',wind_direction_1000hPa,wind_direction_975hPa,geopotential_height_1000hPa,geopotential_height_975hPa';
+  if (balloon) url += ',wind_speed_1000hPa,wind_speed_975hPa,wind_direction_1000hPa,wind_direction_975hPa,geopotential_height_1000hPa,geopotential_height_975hPa';
   url += '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum'
     + '&wind_speed_unit=ms&timezone=Asia/Tokyo&forecast_days=7';
   const modelRequest = fetch(url).then(r=>{if(!r.ok)throw Error(`モデル HTTP ${r.status}`);return r.json();});
@@ -796,14 +796,33 @@ function balloonPoP(jma, dateKey, startHour) {
 function balloonUpperWind(hourly, i, elevation) {
   if (!Number.isFinite(Number(elevation))) return [];
   const samples = [];
+  const levels = [];
   for (const pressure of [1000,975]) {
     const height = Number(hourly[`geopotential_height_${pressure}hPa`]?.[i]);
     const dir = Number(hourly[`wind_direction_${pressure}hPa`]?.[i]);
+    const rawSpeed = hourly[`wind_speed_${pressure}hPa`]?.[i];
+    const speed = rawSpeed == null ? NaN : Number(rawSpeed);
     const agl = height - Number(elevation);
     if (hourly[`geopotential_height_${pressure}hPa`]?.[i] != null &&
         hourly[`wind_direction_${pressure}hPa`]?.[i] != null &&
-        Number.isFinite(agl) && Number.isFinite(dir) && agl >= 100 && agl <= 300) {
-      samples.push({height:Math.round(agl),direction:((dir%360)+360)%360});
+        Number.isFinite(agl) && Number.isFinite(dir)) {
+      const level = {height:agl,direction:((dir%360)+360)%360,speed};
+      levels.push(level);
+      if (agl >= 100 && agl <= 300) samples.push(level);
+    }
+  }
+  // どちらの気圧面も範囲外なら、200mを挟む風ベクトルから風向を推定する。
+  if (!samples.length && levels.length === 2) {
+    const [a,b] = levels.sort((x,y)=>x.height-y.height);
+    if (a.height < 200 && b.height > 200 && Number.isFinite(a.speed) && Number.isFinite(b.speed) &&
+        a.speed >= 0 && b.speed >= 0) {
+      const fraction = (200-a.height)/(b.height-a.height);
+      const vector = level => ({u:-level.speed*Math.sin(level.direction*Math.PI/180),
+        v:-level.speed*Math.cos(level.direction*Math.PI/180)});
+      const va = vector(a), vb = vector(b);
+      const u = va.u+(vb.u-va.u)*fraction, v = va.v+(vb.v-va.v)*fraction;
+      if (Math.hypot(u,v) >= 0.1) samples.push({height:200,
+        direction:(Math.atan2(-u,-v)*180/Math.PI+360)%360});
     }
   }
   return samples;
@@ -830,13 +849,13 @@ function balloonSession(model, jma, dateKey, label, startHour, endHour, popStart
   const type = flags.some(Boolean) ? 'caution' : missing ? 'unknown' : 'favorable';
   const status = type==='caution' ? '🟠 気象条件に注意' : type==='unknown' ? '⚪ 一部判定保留' : '🟢 懸念は小さめ';
   const directionText = !upper.length ? '--' : riskyUpper ?
-    `${compass16(riskyUpper.direction)} ${Math.round(riskyUpper.direction)}°（地上${riskyUpper.height}m）` :
+    `${compass16(riskyUpper.direction)} ${Math.round(riskyUpper.direction)}°` :
     upper.map(x=>compass16(x.direction)).filter((v,i,a)=>a.indexOf(v)===i).join('・');
   return `<div class="balloon-session ${type}"><strong>${label} ${String(startHour).padStart(2,'0')}:00–${String(endHour).padStart(2,'0')}:00</strong>
     <div class="balloon-status">${status}</div>
     <div class="balloon-metric ${flags[0]?'flag':''}">☔ 降水確率 ${pop==null?'--':pop+'%'}（${String(popStart).padStart(2,'0')}–${String(popStart+6).padStart(2,'0')}時）</div>
     <div class="balloon-metric ${flags[1]?'flag':''}">🌧️ 予想降水 最大 ${peakRain==null?'--':peakRain.toFixed(1)+'mm/h'}</div>
-    <div class="balloon-metric ${flags[2]?'flag':''}">💨 地上風 最大 ${peak==null?'--':peak.toFixed(1)+'m/s（'+(peak/0.514444).toFixed(1)+'kt）'}</div>
+    <div class="balloon-metric ${flags[2]?'flag':''}">💨 地上風 最大 ${peak==null?'--':peak.toFixed(1)+'m/s'}</div>
     <div class="balloon-metric ${flags[3]?'flag':''}">🧭 上空風向 ${directionText}</div></div>`;
 }
 
@@ -853,7 +872,7 @@ function buildBalloonCard(model,jma) {
   };
   return `<div class="balloon-card"><div class="balloon-head">🎈 飛行向け気象条件</div>
     <div class="balloon-days">${[0,1].map(day=>`<button type="button" class="balloon-day-button" data-balloon-day="${day}" aria-pressed="${day===selected}" onclick="switchBalloonDay(this)">${day===0?'本日':'明日'} ${formatJstMD(new Date(now.getTime()+day*86400000))}</button>`).join('')}</div>
-    <div class="balloon-note">※ あくまで目安です。</div>
+    <div class="balloon-note"><b>（※ 注意）</b>本情報は、あくまで目安としてご活用下さい。</div>
     ${dayPanel(0)}${dayPanel(1)}
     <div class="balloon-official">公式発表: <a href="https://www.sibf.jp/" target="_blank" rel="noopener noreferrer">大会サイトの最新情報で確認 ↗</a></div></div>`;
 }
