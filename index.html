@@ -664,7 +664,7 @@ function updateMarkers() {
     else { val=rain!=null?(rain>0?`${rain}`:'0'):'--'; cls=rain>10?'hot':rain>0?'rain':'normal'; }
 
     const icon=L.divIcon({className:'marker-icon',
-      html:`<div class="location-pin pin-amedas"><span class="pin-icon">🌡️</span><span class="pin-name">${st.name}</span><span class="pin-value">${val}${val==='--'?'':currentDisplay==='wind'?' m/s':currentDisplay==='rain'?' mm':''}</span></div>`,
+      html:`<div class="location-pin pin-amedas"><span class="pin-name">${st.name}</span><span class="pin-value">${val}${val==='--'?'':currentDisplay==='wind'?' m/s':currentDisplay==='rain'?' mm':''}</span></div>`,
       iconSize:[0,0],iconAnchor:[0,0]});
     const m=L.marker([st.lat,st.lon],{icon,zIndexOffset:100}).addTo(map);
 
