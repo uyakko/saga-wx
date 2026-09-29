@@ -301,6 +301,11 @@ body {
 .balloon-card { margin:0 0 12px; padding:12px; border-radius:12px;
   background:rgba(248,250,252,.95); border:1px solid #cbd5e1; }
 .balloon-head { font-size:.85rem; font-weight:700; color:#1e293b; margin-bottom:5px; }
+.balloon-days { display:flex; gap:6px; margin:7px 0 9px; }
+.balloon-day-button { flex:1; min-width:0; padding:6px 4px; border:1px solid #cbd5e1;
+  border-radius:8px; background:white; color:#475569; font:inherit; font-size:.72rem; cursor:pointer; }
+.balloon-day-button[aria-pressed="true"] { background:#2563eb; border-color:#2563eb; color:white; font-weight:700; }
+.balloon-day-panel[hidden] { display:none; }
 .balloon-note { font-size:.67rem; color:#64748b; line-height:1.45; margin-bottom:8px; }
 .balloon-sessions { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
 .balloon-session { min-width:0; border:1px solid #cbd5e1; background:white;
@@ -778,12 +783,14 @@ async function loadSpotForecast(containerId, lat, lon, balloon = false) {
 }
 
 function balloonPoP(jma, dateKey, startHour) {
-  const series = jma?.[0]?.timeSeries?.find(ts => ts.areas?.some(a => Array.isArray(a.pops)));
-  const area = series?.areas?.find(a => a.area?.name === '南部');
-  const index = series?.timeDefines?.findIndex(t => t.slice(0,10) === dateKey && Number(t.slice(11,13)) === startHour);
-  if (!area || index == null || index < 0) return null;
-  const value = Number(area.pops?.[index]);
-  return Number.isFinite(value) && area.pops?.[index] !== '' ? value : null;
+  for (const series of jma?.[0]?.timeSeries || []) {
+    const area = series.areas?.find(a => a.area?.name === '南部' && Array.isArray(a.pops));
+    const index = series.timeDefines?.findIndex(t => t.slice(0,10) === dateKey && Number(t.slice(11,13)) === startHour);
+    if (!area || index == null || index < 0) continue;
+    const value = Number(area.pops[index]);
+    if (Number.isFinite(value) && area.pops[index] !== '') return value;
+  }
+  return null;
 }
 
 function balloonUpperWind(hourly, i, elevation) {
@@ -834,13 +841,29 @@ function balloonSession(model, jma, dateKey, label, startHour, endHour, popStart
 }
 
 function buildBalloonCard(model,jma) {
-  const now = new Date(), key = new Intl.DateTimeFormat('en-CA',
-    {timeZone:'Asia/Tokyo',year:'numeric',month:'2-digit',day:'2-digit'}).format(now);
-  return `<div class="balloon-card"><div class="balloon-head">🎈 本日 ${formatJstMD(now)} の飛行向け気象条件</div>
+  const now = new Date();
+  const selected = Number(jstParts(now,{hour:'2-digit',hourCycle:'h23'}).find(p=>p.type==='hour')?.value) >= 18 ? 1 : 0;
+  const dayPanel = day => {
+    const date = new Date(now.getTime() + day * 86400000);
+    const parts = jstParts(date,{year:'numeric',month:'2-digit',day:'2-digit'});
+    const part = type => parts.find(p=>p.type===type)?.value;
+    const key = `${part('year')}-${part('month')}-${part('day')}`;
+    return `<div class="balloon-day-panel" data-balloon-day="${day}" ${day===selected?'':'hidden'}>
+      <div class="balloon-sessions">${balloonSession(model,jma,key,'午前',7,9,6)}${balloonSession(model,jma,key,'午後',15,17,12)}</div></div>`;
+  };
+  return `<div class="balloon-card"><div class="balloon-head">🎈 飛行向け気象条件</div>
+    <div class="balloon-days">${[0,1].map(day=>`<button type="button" class="balloon-day-button" data-balloon-day="${day}" aria-pressed="${day===selected}" onclick="switchBalloonDay(this)">${day===0?'本日':'明日'} ${formatJstMD(new Date(now.getTime()+day*86400000))}</button>`).join('')}</div>
     <div class="balloon-note">目安: 降水確率30%以上・予想降水0.1mm/h以上・地上風5kt以上・地上100～300mの北西～北東風。数値は飛行可否の決定ではありません。</div>
-    <div class="balloon-sessions">${balloonSession(model,jma,key,'午前',7,9,6)}${balloonSession(model,jma,key,'午後',15,17,12)}</div>
+    ${dayPanel(0)}${dayPanel(1)}
     <div class="balloon-official">公式発表: <a href="https://www.sibf.jp/" target="_blank" rel="noopener noreferrer">大会サイトの最新情報で確認 ↗</a></div>
     <div class="balloon-note" style="margin:7px 0 0">降水確率は佐賀県南部の6時間予報、風は会場のモデル予報です。上空風向は気圧面の高度を地上高に換算して判定。</div></div>`;
+}
+
+function switchBalloonDay(button) {
+  const card = button.closest('.balloon-card');
+  const day = button.dataset.balloonDay;
+  card.querySelectorAll('.balloon-day-button').forEach(el => el.setAttribute('aria-pressed', String(el===button)));
+  card.querySelectorAll('.balloon-day-panel').forEach(el => { el.hidden = el.dataset.balloonDay !== day; });
 }
 
 function showPinpointDetail(lat, lng) {
