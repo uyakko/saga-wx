@@ -259,30 +259,6 @@ body {
 .wk-bar { flex: 1; height: 5px; border-radius: 3px; background: linear-gradient(90deg, #93c5fd, #fca5a5); }
 .wk-pop { width: 38px; text-align: right; font-size: 0.78rem; color: var(--accent); font-weight: 500; }
 
-/* ===== EARTHQUAKE ===== */
-.eq-item {
-  padding: 10px; margin-bottom: 8px;
-  background: rgba(255,255,255,0.4); border-radius: 12px;
-  border: 1px solid rgba(0,0,0,0.04);
-  transition: all 0.2s;
-}
-.eq-item:hover { background: rgba(255,255,255,0.7); }
-.eq-item:last-child { margin-bottom: 0; }
-.eq-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
-.eq-location { font-weight: 700; font-size: 0.85rem; }
-.eq-intensity {
-  padding: 2px 10px; border-radius: 6px; font-size: 0.75rem;
-  font-weight: 700; color: white;
-}
-.eq-int-1 { background: #94a3b8; }
-.eq-int-2 { background: #60a5fa; }
-.eq-int-3 { background: #34d399; }
-.eq-int-4 { background: #fbbf24; }
-.eq-int-5 { background: #f97316; }
-.eq-int-6 { background: #ef4444; }
-.eq-int-7 { background: #7c3aed; }
-.eq-meta { font-size: 0.72rem; color: var(--text-sub); display: flex; gap: 12px; }
-
 /* ===== WARNING PANEL ===== */
 .warn-ok {
   text-align: center; padding: 20px;
@@ -333,21 +309,37 @@ body {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ===== STATION MARKERS ===== */
-.station-marker {
-  background: var(--glass-bg-strong); backdrop-filter: blur(8px);
-  border: 2px solid; border-radius: 50%;
-  width: 38px; height: 38px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 0.7rem; font-weight: 700;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-  transition: transform 0.2s;
+/* ===== MAP LOCATION MARKERS ===== */
+.marker-icon { background: transparent; border: 0; }
+.location-pin {
+  display:flex; flex-direction:column; align-items:center;
+  width:max-content; min-width:62px; max-width:102px;
+  padding:5px 7px 6px; border:2px solid #fff; border-radius:12px;
+  color:#fff; font-weight:700; font-size:0.71rem; line-height:1.15;
+  text-align:center; box-shadow:0 3px 12px rgba(15,23,42,.45);
+  transform:translate(-50%,-100%); cursor:pointer;
+  transition:transform .15s, box-shadow .15s;
 }
-.station-marker:hover { transform: scale(1.15); }
-.station-marker.normal { border-color: var(--success); color: #065f46; }
-.station-marker.rain { border-color: var(--accent); color: #1e40af; background: rgba(219,234,254,0.7); }
-.station-marker.hot { border-color: var(--danger); color: #991b1b; background: rgba(254,226,226,0.7); }
-.station-marker.cold { border-color: #8b5cf6; color: #5b21b6; background: rgba(237,233,254,0.7); }
+.location-pin:hover { transform:translate(-50%,-100%) scale(1.1); box-shadow:0 5px 16px rgba(15,23,42,.55); }
+.location-pin::after {
+  content:''; position:absolute; bottom:-7px; left:calc(50% - 5px);
+  width:10px; height:10px; background:inherit; border-right:2px solid white;
+  border-bottom:2px solid white; transform:rotate(45deg);
+}
+.pin-amedas { background:#184c9d; }
+.pin-venue { background:#9a3375; }
+.pin-office { background:#a25213; }
+.pin-selected { background:#08775d; }
+.pin-icon { font-size:1.05rem; line-height:1.1; }
+.pin-name { white-space:nowrap; }
+.pin-value { font-size:.77rem; white-space:nowrap; margin-top:2px; }
+.marker-key {
+  position:absolute; top:12px; left:12px; z-index:1000;
+  display:flex; gap:5px; flex-wrap:wrap; max-width:50%;
+}
+.marker-key span { padding:4px 7px; border-radius:7px; background:rgba(255,255,255,.94);
+  box-shadow:0 1px 6px rgba(0,0,0,.15); font-size:.67rem; font-weight:700; }
+@media(max-width:600px) { .marker-key { max-width:56%; } .location-pin { min-width:56px; font-size:.65rem; } }
 
 /* ===== FOOTER ===== */
 .footer {
@@ -385,6 +377,7 @@ body {
   <!-- MAP -->
   <div class="map-wrap glass">
     <div id="map"></div>
+    <div class="marker-key"><span>🔵 アメダス</span><span>🟣 指定地点</span><span>🟠 県庁</span></div>
     <div class="map-controls">
       <button class="map-btn active" id="btnRadar" onclick="toggleRadar()">🌧️ レーダー</button>
       <button class="map-btn active" id="btnTemp" onclick="toggleDisplay('temp')">🌡️ 気温</button>
@@ -439,14 +432,6 @@ body {
       </div>
     </div>
 
-    <!-- Earthquake -->
-    <div class="glass">
-      <div class="card-header"><span class="icon">🔔</span>最近の地震情報</div>
-      <div class="card-body-scroll" id="earthquakePanel">
-        <div class="loading"><div class="spinner"></div>読み込み中...</div>
-      </div>
-    </div>
-
     <!-- Typhoon -->
     <div class="glass">
       <div class="card-header"><span class="icon">🌀</span>台風情報</div>
@@ -458,7 +443,7 @@ body {
 </div>
 
 <div class="footer">
-  データ提供: 気象庁 (JMA) ・ Open-Meteo JMA API ｜ ※ 本サイトは防災情報の参考としてご利用ください。正確な情報は気象庁公式サイトをご確認ください。
+  データ提供: 気象庁 (JMA) ・ Open-Meteo JMA API ｜ 地図: 国土地理院 ｜ ※ 本サイトは防災情報の参考としてご利用ください。正確な情報は気象庁公式サイトをご確認ください。
 </div>
 
 <script>
@@ -543,9 +528,11 @@ let radarOn=true, amedasData={};
 // ============================================================
 function initMap() {
   map = L.map('map',{center:SAGA_CENTER,zoom:10,zoomControl:false});
-  L.tileLayer('https://maps.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png',{
+  const baseTiles = L.tileLayer('https://maps.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png',{
     attribution:'&copy; 国土地理院', maxZoom:18
-  }).addTo(map);
+  });
+  baseTiles.on('tileload', e => { e.tile.style.filter = 'grayscale(75%) saturate(30%) brightness(1.07)'; });
+  baseTiles.addTo(map);
   L.control.zoom({position:'bottomright'}).addTo(map);
 
   // 佐賀県境界
@@ -555,14 +542,10 @@ function initMap() {
     [33.05,129.95],[33.10,129.80],[33.25,129.73],[33.40,129.75],[33.55,129.75]
   ],{color:'#2563eb',weight:2,opacity:0.4,dashArray:'6,4'}).addTo(map);
 
-  // 佐賀県庁マーカー（台風の最接近基準点）
+  // 最接近の基準点を他の指定地点と区別する
   L.marker([SAGA_OFFICE.lat, SAGA_OFFICE.lon], {
-    icon: L.divIcon({
-      className: 'marker-icon normal',
-      html: '<div class="marker-label" style="background:rgba(37,99,235,0.15);color:#1e40af;border-color:rgba(37,99,235,0.3)">🏛️</div>',
-      iconSize: [44,44], iconAnchor: [22,22]
-    })
-  }).addTo(map).bindPopup('佐賀県庁');
+    icon: L.divIcon({className:'marker-icon', html:'<div class="location-pin pin-office"><span class="pin-icon">🏛️</span><span class="pin-name">佐賀県庁</span></div>',iconSize:[0,0],iconAnchor:[0,0]})
+  }).addTo(map).bindPopup('佐賀県庁（台風最接近の計算基準）');
 
   // クリックでピンポイント予報
 map.on('click', function(e) {
@@ -574,9 +557,9 @@ map.on('click', function(e) {
 
     // ピンポイントマーカーを地図に追加（位置表示のみ）
     var ppIcon = L.divIcon({
-      className: 'marker-icon normal',
-      html: '<div class="marker-label" style="background:rgba(16,185,129,0.15);color:#059669;border-color:rgba(16,185,129,0.3)">📍</div>',
-      iconSize: [44,44], iconAnchor: [22,22]
+      className: 'marker-icon',
+      html: '<div class="location-pin pin-selected"><span class="pin-icon">📍</span><span class="pin-name">選択地点</span></div>',
+      iconSize: [0,0], iconAnchor: [0,0]
     });
     window._ppMarker = L.marker([lat, lng], {icon: ppIcon}).addTo(map);
 
@@ -650,7 +633,7 @@ function windText(d) { return (!d||d===0)?'静穏':WIND_DIR[(d-1)%16]||''; }
 function updateMarkers() {
   markers.forEach(m=>map.removeLayer(m)); markers=[];
   Object.entries(STATIONS).forEach(([id,st])=>{
-    const d=amedasData[id]; if(!d) return;
+    const d=amedasData[id] || {};
     const temp=d.temp?d.temp[0]:null, wind=d.wind?d.wind[0]:null,
           rain=d.precipitation1h?d.precipitation1h[0]:null,
           wdir=d.windDirection?d.windDirection[0]:null,
@@ -661,11 +644,13 @@ function updateMarkers() {
     else if (currentDisplay==='wind') { val=wind!=null?`${wind}`:'--'; cls=wind>=10?'hot':wind>=5?'rain':'normal'; }
     else { val=rain!=null?(rain>0?`${rain}`:'0'):'--'; cls=rain>10?'hot':rain>0?'rain':'normal'; }
 
-    const icon=L.divIcon({className:'marker-icon '+cls,html:`<div class="marker-label">${val}</div>`,iconSize:[44,44],iconAnchor:[22,22]});
-    const m=L.marker([st.lat,st.lon],{icon}).addTo(map);
+    const icon=L.divIcon({className:'marker-icon',
+      html:`<div class="location-pin pin-amedas"><span class="pin-icon">🌡️</span><span class="pin-name">${st.name}</span><span class="pin-value">${val}${currentDisplay==='temp'?'':currentDisplay==='wind'&&val!=='--'?' m/s':currentDisplay==='rain'&&val!=='--'?' mm':''}</span></div>`,
+      iconSize:[0,0],iconAnchor:[0,0]});
+    const m=L.marker([st.lat,st.lon],{icon,zIndexOffset:100}).addTo(map);
 
     m.on('click', function() {
-      showSpotDetail(id, st, amedasData[id]);
+      showSpotDetail(id, st, amedasData[id] || null);
     });
 
     markers.push(m);
@@ -674,12 +659,10 @@ function updateMarkers() {
   // ユーザー地点マーカー
   Object.entries(USER_SPOTS).forEach(function([uid, ust]) {
     var spotIcon = ust.icon || '⭐';
-    var uIcon = L.divIcon({
-      className: 'marker-icon normal',
-      html: '<div class="marker-label" style="background:rgba(139,92,246,0.15);color:#7c3aed;border-color:rgba(139,92,246,0.3)">' + spotIcon + '</div>',
-      iconSize: [44,44], iconAnchor: [22,22]
-    });
-    var um = L.marker([ust.lat, ust.lon], {icon: uIcon}).addTo(map);
+    var uIcon = L.divIcon({className:'marker-icon',
+      html: '<div class="location-pin pin-venue"><span class="pin-icon">' + spotIcon + '</span><span class="pin-name">' + ust.name + '</span></div>',
+      iconSize:[0,0],iconAnchor:[0,0]});
+    var um = L.marker([ust.lat, ust.lon], {icon:uIcon,zIndexOffset:200}).addTo(map);
 
     um.on('click', function() {
       showSpotDetail(uid, Object.assign({type:'user'}, ust), null);
@@ -742,9 +725,9 @@ async function loadSpotForecast(containerId, lat, lon) {
   if (!container) return;
   try {
     var url = 'https://api.open-meteo.com/v1/jma?latitude=' + lat + '&longitude=' + lon
-      + '&hourly=temperature_2m,precipitation,weather_code,wind_speed_10m'
+      + '&hourly=temperature_2m,precipitation,weather_code,wind_speed_10m,wind_direction_10m'
       + '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum'
-      + '&timezone=Asia/Tokyo&forecast_days=7';
+      + '&wind_speed_unit=ms&timezone=Asia/Tokyo&forecast_days=7';
     var r = await fetch(url);
     var data = await r.json();
     container.innerHTML = buildForecastHtml(data);
@@ -815,22 +798,46 @@ function renderToday(data) {
 }
 
 function renderWeekly(data) {
-  if(!data||!data[1]) return;
-  const ts=data[1], wTS=ts.timeSeries[0], tTS=ts.timeSeries[1];
+  if (!data?.[1]?.timeSeries?.[0]) return;
+  const weekly = data[1], wTS = weekly.timeSeries[0], tTS = weekly.timeSeries[1];
+  const short = data[0]?.timeSeries || [];
+  const shortWeather = short[0];
+  const days = ['日','月','火','水','木','金','土'];
+  const tokyoDay = d => new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Tokyo',year:'numeric',month:'2-digit',day:'2-digit'}).format(d);
+  const tomorrow = new Date(Date.now()+24*60*60*1000);
+  const tomorrowKey = tokyoDay(tomorrow);
+  const rows = [];
+  const weeklyArea = wTS.areas?.[0];
+  const tempArea = tTS?.areas?.find(a=>a.area.code===weeklyArea?.area.code) || tTS?.areas?.[0];
+  (wTS.timeDefines || []).forEach((t,i) => {
+    const key = tokyoDay(new Date(t));
+    const tempIndex = tTS?.timeDefines?.findIndex(x=>tokyoDay(new Date(x))===key) ?? -1;
+    const j = tempIndex >= 0 ? tempIndex : i;
+    rows.push({key,code:weeklyArea?.weatherCodes?.[i], pop:weeklyArea?.pops?.[i],
+      min:tempArea?.tempsMin?.[j],max:tempArea?.tempsMax?.[j]});
+  });
+  if (!rows.some(row=>row.key===tomorrowKey) && shortWeather?.timeDefines) {
+    const i = shortWeather.timeDefines.findIndex(t=>tokyoDay(new Date(t))===tomorrowKey);
+    if (i>=0) {
+      const area = shortWeather.areas?.[0];
+      const st = short[2], tempAreaShort = st?.areas?.[0];
+      const tomorrowTemps = (st?.timeDefines || []).map((t,j)=>({key:tokyoDay(new Date(t)),value:Number(tempAreaShort?.temps?.[j])}))
+        .filter(x=>x.key===tomorrowKey && Number.isFinite(x.value)).map(x=>x.value);
+      rows.push({key:tomorrowKey,code:area?.weatherCodes?.[i],pop:null,
+        min:tomorrowTemps.length?Math.min(...tomorrowTemps):null,
+        max:tomorrowTemps.length?Math.max(...tomorrowTemps):null});
+    }
+  }
+  rows.sort((a,b)=>a.key.localeCompare(b.key));
   let h='';
-  const days=['日','月','火','水','木','金','土'];
-  if(wTS&&wTS.areas&&wTS.areas[0]){
-    const a=wTS.areas[0], ta=tTS&&tTS.areas?tTS.areas[0]:null;
-    wTS.timeDefines.forEach((t,i)=>{
-      const dt=new Date(t), day=days[dt.getDay()];
-      const ds=`${dt.getMonth()+1}/${dt.getDate()}`;
-      const dc=dt.getDay()===0?'sun':dt.getDay()===6?'sat':'';
-      const code=a.weatherCodes?a.weatherCodes[i]:'';
-      const pop=a.pops?a.pops[i]:'';
-      let mn='--',mx='--';
-      if(ta){mn=ta.tempsMin?(ta.tempsMin[i]||'--'):'--';mx=ta.tempsMax?(ta.tempsMax[i]||'--'):'--';}
-      h+=`<div class="wk-row"><div class="wk-day ${dc}">${ds}<br><small>${day}</small></div><div class="wk-icon"><img src="https://www.jma.go.jp/bosai/forecast/img/${code}.svg" onerror="this.style.display='none'" style="width:26px;height:26px"></div><div class="wk-temps"><span style="color:#2563eb;font-size:0.78rem;width:28px;text-align:right">${mn}°</span><div class="wk-bar"></div><span style="color:#ef4444;font-size:0.78rem;width:28px">${mx}°</span></div><div class="wk-pop">${pop?pop+'%':'--'}</div></div>`;
-    });
+  for (const row of rows) {
+    const dt = new Date(row.key+'T12:00:00+09:00');
+    const day = days[dt.getDay()], ds=`${dt.getMonth()+1}/${dt.getDate()}`;
+    const dc = dt.getDay()===0?'sun':dt.getDay()===6?'sat':'';
+    const mn = row.min != null && row.min!=='' ? row.min : '--';
+    const mx = row.max != null && row.max!=='' ? row.max : '--';
+    const pop = row.pop != null && row.pop!=='' ? row.pop+'%' : '--';
+    h+=`<div class="wk-row"><div class="wk-day ${dc}">${ds}<br><small>${day}</small></div><div class="wk-icon"><img src="https://www.jma.go.jp/bosai/forecast/img/${row.code||'000'}.svg" onerror="this.style.display='none'"></div><div class="wk-temps"><span style="color:#2563eb;font-size:0.78rem;width:28px;text-align:right">${mn}°</span><div class="wk-bar"></div><span style="color:#ef4444;font-size:0.78rem;width:28px">${mx}°</span></div><div class="wk-pop">${pop}</div></div>`;
   }
   document.getElementById('tabWeekly').innerHTML=h||'<div style="color:#94a3b8">週間予報なし</div>';
 }
@@ -847,6 +854,11 @@ function switchTab(tab,el) {
 // ============================================================
 
 
+function compass16(degrees) {
+  if (degrees == null || !Number.isFinite(Number(degrees))) return '--';
+  return WIND_DIR[Math.round(((Number(degrees) % 360) + 360) % 360 / 22.5) % 16];
+}
+
 function buildForecastHtml(data) {
   var hr = data.hourly;
   var dy = data.daily;
@@ -858,7 +870,7 @@ function buildForecastHtml(data) {
   if (hr && hr.time) {
     h += '<div style="font-weight:600;font-size:0.75rem;color:#334155;margin:6px 0 4px">⏱️ 24時間予報</div>';
     h += '<div style="overflow-x:auto;margin-bottom:8px">';
-    var times=[], icons=[], temps=[], rains=[], winds=[];
+    var times=[], icons=[], temps=[], rains=[], winds=[], directions=[];
     var count = 0;
     for (var i=0; i<hr.time.length && count<24; i++) {
       var t = new Date(hr.time[i]);
@@ -867,11 +879,12 @@ function buildForecastHtml(data) {
       times.push(String(t.getHours()).padStart(2,'0'));
       icons.push(wmoIcon(hr.weather_code ? hr.weather_code[i] : 0));
       var tmp = hr.temperature_2m ? hr.temperature_2m[i] : null;
-      temps.push(tmp!=null ? tmp.toFixed(1)+'\u00B0' : '--');
+      temps.push(tmp!=null ? Math.round(Number(tmp))+'\u00B0' : '--');
       var rain = hr.precipitation ? hr.precipitation[i] : null;
       rains.push(rain!=null ? rain.toFixed(1) : '--');
       var ws = hr.wind_speed_10m ? hr.wind_speed_10m[i] : null;
-      winds.push(ws!=null ? ws.toFixed(0) : '--');
+      winds.push(ws!=null ? Number(ws).toFixed(1) : '--');
+      directions.push(compass16(hr.wind_direction_10m ? hr.wind_direction_10m[i] : null));
     }
     var cs = 'padding:2px 4px;text-align:center;white-space:nowrap;min-width:32px;font-size:0.68rem;border-right:1px solid rgba(0,0,0,0.04)';
     var hs = 'padding:2px 4px;text-align:left;white-space:nowrap;font-weight:600;color:#64748b;font-size:0.68rem;position:sticky;left:0;background:#f8fafc;z-index:1;min-width:36px';
@@ -887,8 +900,10 @@ function buildForecastHtml(data) {
       var rc = parseFloat(rains[j]) > 0 ? '#2563eb' : '#94a3b8';
       h += '<td style="'+cs+';color:'+rc+'">'+rains[j]+'</td>';
     }
-    h += '</tr><tr style="background:rgba(0,0,0,0.015)"><td style="'+hs+'">風速</td>';
+    h += '</tr><tr style="background:rgba(0,0,0,0.015)"><td style="'+hs+'">風速<br>m/s</td>';
     for (var j=0;j<winds.length;j++) h += '<td style="'+cs+';color:#64748b">'+winds[j]+'</td>';
+    h += '</tr><tr><td style="'+hs+'">風向</td>';
+    for (var j=0;j<directions.length;j++) h += '<td style="'+cs+';color:#334155">'+directions[j]+'</td>';
     h += '</tr></table></div>';
   }
 
@@ -999,56 +1014,6 @@ function renderWarnings(reports) {
   banner.classList.add('active');
   if (hasAlert) banner.classList.add('alert');
   panel.innerHTML = pHtml + `<div style="color:#64748b;font-size:0.68rem;padding:6px">最終発表: ${dateLabel}</div>`;
-}
-
-// ============================================================
-// EARTHQUAKE
-// ============================================================
-async function loadEarthquake() {
-  try {
-    const r=await fetch('https://www.jma.go.jp/bosai/quake/data/list.json');
-    const list=await r.json();
-    renderEarthquake(list.slice(0,8));
-  } catch(e) {
-    console.error('EQ:',e);
-    document.getElementById('earthquakePanel').innerHTML='<div style="color:#94a3b8">取得失敗</div>';
-  }
-}
-
-function renderEarthquake(list) {
-  if(!list.length){
-    document.getElementById('earthquakePanel').innerHTML='<div style="color:#94a3b8">最近の地震情報はありません</div>';
-    return;
-  }
-  let h='';
-  list.forEach(eq=>{
-    const time=eq.at?new Date(eq.at).toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'--';
-    const loc=eq.anm||'不明';
-    const mag=eq.mag||'--';
-    const maxi=eq.maxi||'--';
-    const intNum=parseInt(maxi)||0;
-    const intClass=intNum>=7?'eq-int-7':intNum>=6?'eq-int-6':intNum>=5?'eq-int-5':intNum>=4?'eq-int-4':intNum>=3?'eq-int-3':intNum>=2?'eq-int-2':'eq-int-1';
-
-    // 深さ解析
-    let depth='--';
-    if(eq.cod){
-      const dm=eq.cod.match(/[+-](\d+)\//);
-      if(dm) depth=parseInt(dm[1])/1000+'km';
-    }
-
-    h+=`<div class="eq-item">
-      <div class="eq-header">
-        <div class="eq-location">${loc}</div>
-        <div class="eq-intensity ${intClass}">震度${maxi}</div>
-      </div>
-      <div class="eq-meta">
-        <span>🕐 ${time}</span>
-        <span>M${mag}</span>
-        <span>深さ${depth}</span>
-      </div>
-    </div>`;
-  });
-  document.getElementById('earthquakePanel').innerHTML=h;
 }
 
 // ============================================================
@@ -1199,7 +1164,7 @@ async function loadTyphoon() {
 
 async function refreshAll() {
   document.getElementById('updateTime').textContent='更新中...';
-  await Promise.all([loadAmedas(),loadForecast(),loadWarnings(),loadRadar(),loadEarthquake(),loadTyphoon()]);
+  await Promise.all([loadAmedas(),loadForecast(),loadWarnings(),loadRadar(),loadTyphoon()]);
 }
 
 // ============================================================
