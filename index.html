@@ -445,6 +445,7 @@ body {
       <div class="card-body-scroll" id="earthquakePanel">
         <div class="loading"><div class="spinner"></div>読み込み中...</div>
       </div>
+    </div>
 
     <!-- Typhoon -->
     <div class="glass">
@@ -452,7 +453,6 @@ body {
       <div class="card-body" id="typhoonPanel">
         <div class="loading"><div class="spinner"></div>読み込み中...</div>
       </div>
-    </div>
     </div>
   </div>
 </div>
@@ -488,17 +488,23 @@ const SAGA_OFFICE = { lat: 33.2494385, lon: 130.2988042, name: '佐賀県庁' };
 // 複数の台風がある場合に経路を色分けするためのパレット
 const TYPHOON_COLORS = ['#ef4444', '#7c3aed', '#0ea5e9', '#f59e0b'];
 
+// 令和8年（2026年5月以降）の気象庁警報・注意報コード
 const WARN_NAMES = {
-  '02':'暴風雪警報','03':'大雨警報','04':'洪水警報','05':'暴風警報',
-  '06':'大雪警報','07':'波浪警報','08':'高潮警報',
-  '10':'大雨特別警報','11':'暴風特別警報','12':'暴風雪特別警報',
-  '13':'大雪特別警報','14':'波浪特別警報','15':'高潮特別警報',
-  '16':'雷注意報','17':'強風注意報','18':'風雪注意報',
-  '19':'大雨注意報','20':'大雪注意報','21':'波浪注意報',
-  '22':'高潮注意報','23':'濃霧注意報','24':'雷注意報',
-  '25':'乾燥注意報','26':'なだれ注意報','27':'着氷注意報',
-  '28':'着雪注意報','29':'融雪注意報','30':'霜注意報',
-  '31':'低温注意報','32':'洪水注意報',
+  '02':'暴風雪警報','03':'レベル3大雨警報','04':'レベル3氾濫警報',
+  '05':'暴風警報','06':'大雪警報','07':'波浪警報','08':'レベル3高潮警報',
+  '09':'レベル3土砂災害警報','10':'レベル2大雨注意報',
+  '12':'大雪注意報','13':'風雪注意報','14':'雷注意報',
+  '15':'強風注意報','16':'波浪注意報','17':'融雪注意報',
+  '18':'レベル2氾濫注意報','19':'レベル2高潮注意報',
+  '20':'濃霧注意報','21':'乾燥注意報','22':'なだれ注意報',
+  '23':'低温注意報','24':'霜注意報','25':'着氷注意報',
+  '26':'着雪注意報','27':'その他の注意報','29':'レベル2土砂災害注意報',
+  '32':'暴風雪特別警報','33':'レベル5大雨特別警報',
+  '34':'レベル5氾濫特別警報','35':'暴風特別警報',
+  '36':'大雪特別警報','37':'波浪特別警報',
+  '38':'レベル5高潮特別警報','39':'レベル5土砂災害特別警報',
+  '43':'レベル4大雨危険警報','44':'レベル4氾濫危険警報',
+  '48':'レベル4高潮危険警報','49':'レベル4土砂災害危険警報'
 };
 
 const MUNIC = {
@@ -537,8 +543,8 @@ let radarOn=true, amedasData={};
 // ============================================================
 function initMap() {
   map = L.map('map',{center:SAGA_CENTER,zoom:10,zoomControl:false});
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{
-    attribution:'&copy; OSM &copy; CARTO', maxZoom:18
+  L.tileLayer('https://maps.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png',{
+    attribution:'&copy; 国土地理院', maxZoom:18
   }).addTo(map);
   L.control.zoom({position:'bottomright'}).addTo(map);
 
@@ -939,49 +945,60 @@ function buildForecastHtml(data) {
 // ============================================================
 async function loadWarnings() {
   try {
-    const r=await fetch(`https://www.jma.go.jp/bosai/warning/data/warning/${SAGA_CODE}.json`);
-    const data=await r.json();
+    const r = await fetch(`https://www.jma.go.jp/bosai/warning/data/r8/${SAGA_CODE}.json`, {cache:'no-store'});
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    if (!Array.isArray(data) || !data.length) throw new Error('警報データの形式が不正です');
     renderWarnings(data);
-  } catch(e) { console.error('Warning:',e); }
+  } catch(e) {
+    console.error('Warning:', e);
+    const banner = document.getElementById('warningBanner');
+    banner.innerHTML = ''; banner.classList.remove('active','alert');
+    document.getElementById('warningPanel').innerHTML = '<div style="color:#b91c1c;padding:12px">警報・注意報を取得できませんでした。気象庁の公式情報をご確認ください。</div>';
+  }
 }
 
-function renderWarnings(data) {
-  const banner=document.getElementById('warningBanner');
-  const panel=document.getElementById('warningPanel');
-  let bHtml='', pHtml='', hasActive=false, hasAlert=false;
-
-  if(data.areaTypes&&data.areaTypes.length>1){
-    const mw=data.areaTypes[1], active={};
-    mw.areas.forEach(a=>{
-      const name=MUNIC[a.code]||a.code;
-      a.warnings.forEach(w=>{
-        if(w.status==='発表'||w.status==='継続'){
-          hasActive=true;
-          const wn=WARN_NAMES[w.code]||`警報(${w.code})`;
-          if(!active[wn])active[wn]=[];
-          active[wn].push(name);
-          if(parseInt(w.code)<=15) hasAlert=true;
-        }
-      });
-    });
-    if(hasActive){
-      Object.entries(active).forEach(([wn,areas])=>{
-        const isK=wn.includes('警報'), isT=wn.includes('特別');
-        const bc=isT?'badge-tokubetsu':isK?'badge-keikai':'badge-chuui';
-        bHtml+=`<span class="warning-badge ${bc}">${wn}</span><span style="font-size:0.8rem">${areas.join('、')}</span>`;
-        const color=isT?'#7c3aed':isK?'#ef4444':'#f59e0b';
-        pHtml+=`<div class="warn-item" style="background:${color}0d;border-color:${color}"><div class="warn-name" style="color:${color}">${wn}</div><div class="warn-areas">${areas.join('、')}</div></div>`;
-      });
+function renderWarnings(reports) {
+  const banner = document.getElementById('warningBanner');
+  const panel = document.getElementById('warningPanel');
+  const active = new Map();
+  let latest = null;
+  // 現行形式は現象別の電文配列。市町村（class20Items）だけを集計する。
+  for (const report of reports) {
+    const t = new Date(report.reportDatetime);
+    if (!isNaN(t) && (!latest || t > latest)) latest = t;
+    for (const area of report.warning?.class20Items || []) {
+      const name = MUNIC[area.areaCode] || area.areaCode;
+      for (const kind of area.kinds || []) {
+        if (!kind.code || ['解除','発表警報・注意報はなし'].includes(kind.status)) continue;
+        const code = String(kind.code).padStart(2,'0');
+        if (!active.has(code)) active.set(code, new Set());
+        active.get(code).add(name);
+      }
     }
   }
-  if(!hasActive){
-    pHtml=`<div class="warn-ok"><div class="warn-ok-icon">✅</div><div class="warn-ok-text">発表中の警報・注意報はありません</div><div class="warn-ok-sub">発表時刻: ${data.reportDatetime?new Date(data.reportDatetime).toLocaleString('ja-JP'):'--'}</div></div>`;
-    banner.classList.remove('active');
-  } else {
-    banner.innerHTML=bHtml; banner.classList.add('active');
-    if(hasAlert) banner.classList.add('alert');
+  const dateLabel = latest ? latest.toLocaleString('ja-JP', {timeZone:'Asia/Tokyo'}) : '--';
+  banner.innerHTML = '';
+  banner.classList.remove('active','alert');
+  if (!active.size) {
+    panel.innerHTML = `<div class="warn-ok"><div class="warn-ok-icon">✅</div><div class="warn-ok-text">発表中の警報・注意報はありません</div><div class="warn-ok-sub">最終発表: ${dateLabel}</div></div>`;
+    return;
   }
-  panel.innerHTML=pHtml;
+  let bHtml = '', pHtml = '', hasAlert = false;
+  for (const [code, names] of [...active].sort((a,b) => Number(b[0])-Number(a[0]))) {
+    const title = WARN_NAMES[code] || `警報・注意報（コード ${code}）`;
+    const areas = [...names].join('、');
+    const special = title.includes('特別警報');
+    const warning = title.includes('警報');
+    const color = special ? '#7c3aed' : warning ? '#ef4444' : '#f59e0b';
+    if (warning) hasAlert = true;
+    bHtml += `<span class="warning-badge ${special?'badge-tokubetsu':warning?'badge-keikai':'badge-chuui'}">${title}</span><span style="font-size:0.8rem">${areas}</span>`;
+    pHtml += `<div class="warn-item" style="background:${color}0d;border-color:${color}"><div class="warn-name" style="color:${color}">${title}</div><div class="warn-areas">${areas}</div></div>`;
+  }
+  banner.innerHTML = bHtml;
+  banner.classList.add('active');
+  if (hasAlert) banner.classList.add('alert');
+  panel.innerHTML = pHtml + `<div style="color:#64748b;font-size:0.68rem;padding:6px">最終発表: ${dateLabel}</div>`;
 }
 
 // ============================================================
@@ -1048,30 +1065,11 @@ function haversineKm(lat1, lon1, lat2, lon2) {
 
 // specifications.json の position フィールドから緯度・経度を推定（非公式APIのためフィールド名を仮定せず数値範囲で探索）
 function extractLatLon(position) {
-  if (!position) return null;
-  const nums = [];
-  (function walk(o) {
-    if (o == null) return;
-    if (typeof o === 'number') { nums.push(o); return; }
-    if (typeof o === 'string') {
-      const m = o.match(/-?\d+(\.\d+)?/);
-      if (m) nums.push(parseFloat(m[0]));
-      return;
-    }
-    if (typeof o === 'object') Object.values(o).forEach(walk);
-  })(position.deg || position.dm || position);
-  const lat = nums.find(n => n >= 0 && n <= 60);
-  const lon = nums.find(n => n >= 90 && n <= 200);
-  return (lat != null && lon != null) ? { lat, lon } : null;
-}
-
-// レコード内のISO8601形式の日時フィールドを探す
-function findISODate(record) {
-  for (const k in record) {
-    const v = record[k];
-    if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(v)) return new Date(v);
-  }
-  return null;
+  const deg = position?.deg;
+  if (!Array.isArray(deg) || deg.length < 2) return null;
+  const lat = Number(deg[0]), lon = Number(deg[1]);
+  return Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat)<=90 && Math.abs(lon)<=180
+    ? {lat, lon} : null;
 }
 
 function fmtDateTime(d) {
@@ -1119,112 +1117,79 @@ function findClosestApproach(points, target) {
 // ============================================================
 async function loadTyphoon() {
   const panel = document.getElementById('typhoonPanel');
-
-  // 地図上の台風レイヤーを準備（毎回クリアして再描画）
   if (!window._typhoonLayerGroup) window._typhoonLayerGroup = L.layerGroup().addTo(map);
-  window._typhoonLayerGroup.clearLayers();
-
+  const nextLayer = L.layerGroup();
   try {
-    // 1) 現在発生中の台風一覧（eventId 一覧）
-    const listRes = await fetch('https://www.jma.go.jp/bosai/typhoon/data/targetTc.json');
-    if (!listRes.ok) throw new Error('no data');
+    const listRes = await fetch('https://www.jma.go.jp/bosai/typhoon/data/targetTc.json', {cache:'no-store'});
+    if (!listRes.ok) throw new Error(`台風一覧 HTTP ${listRes.status}`);
     const list = await listRes.json();
-    if (!list || list.length === 0) throw new Error('no typhoon');
-
-    let h = '';
-    let colorIdx = 0;
-
-    for (const item of list) {
-      const eventId = item.tropicalCyclone; // 例: "TC2604"
+    if (!Array.isArray(list)) throw new Error('台風一覧の形式が不正です');
+    if (!list.length) {
+      window._typhoonLayerGroup.clearLayers();
+      panel.innerHTML = '<div style="color:#10b981;font-size:0.8rem;text-align:center;padding:16px">✅ 現在、発表中の台風情報はありません</div>';
+      return;
+    }
+    let h = '', failures = 0;
+    for (const [index,item] of list.entries()) {
       try {
-        // 2) 各台風の詳細（実況 + 予報12/24/45/69時間後）
-        const specRes = await fetch(`https://www.jma.go.jp/bosai/typhoon/data/${eventId}/specifications.json`);
-        if (!specRes.ok) continue;
+        const eventId = String(item.tropicalCyclone || '');
+        if (!/^TC\d+$/i.test(eventId)) throw new Error('台風IDが不正です');
+        const specRes = await fetch(`https://www.jma.go.jp/bosai/typhoon/data/${eventId}/specifications.json`, {cache:'no-store'});
+        if (!specRes.ok) throw new Error(`${eventId} HTTP ${specRes.status}`);
         const specs = await specRes.json();
-        if (!Array.isArray(specs) || !specs.length) continue;
-
-        // 経路点（緯度・経度・時刻）を抽出
-        const points = [];
-        specs.forEach(rec => {
-          const ll = extractLatLon(rec.position);
-          const time = findISODate(rec);
-          if (ll && time) {
-            points.push({ lat: ll.lat, lon: ll.lon, time, label: (rec.part && rec.part.jp) || '', pressure: rec.pressure });
-          } else {
-            console.warn('Typhoon point skipped (lat/lon or time not found):', rec);
-          }
-        });
-        if (!points.length) continue;
-        points.sort((a, b) => a.time - b.time);
-
-        const current = specs.find(s => s.part && s.part.jp === '実況') || specs[0];
-        const name = (current.name && (current.name.ja || current.name.en || current.name)) || `第${item.typhoonNumber}号`;
-        const number = item.typhoonNumber || '';
-        const pressure = current.pressure ?? '--';
-        const sustained = current.maximumWind && current.maximumWind.sustained ? current.maximumWind.sustained['m/s'] : '--';
-        const gust = current.maximumWind && current.maximumWind.gust ? current.maximumWind.gust['m/s'] : '--';
-        const location = current.location ?? '--';
-        const course = current.course ?? '--';
-        const speed = (current.speed && (current.speed['km/h'] ?? current.speed.ja)) ?? current.speed ?? '--';
-        const intensity = current.intensity ? `（${current.intensity}）` : '';
-
-        // 3) 佐賀県庁への最接近時刻・距離（予報点を直線でつないだ近似値）
+        if (!Array.isArray(specs) || !specs.length) throw new Error(`${eventId} の詳細が空です`);
+        const title = specs.find(s => s.part === 'title') || {};
+        const obs = specs.find(s => s.part?.jp === '実況') || specs.find(s => s.advancedHours === 0 && s.position);
+        if (!obs) throw new Error(`${eventId} の実況がありません`);
+        const points = specs.filter(s => s.position && s.validtime?.JST && (s.part?.jp === '実況' || String(s.part?.jp||'').startsWith('予報')))
+          .map(s => ({...extractLatLon(s.position), time:new Date(s.validtime.JST), label:s.part.jp, pressure:s.pressure}))
+          .filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon) && !isNaN(p.time))
+          .sort((a,b) => a.time-b.time);
+        if (!points.length) throw new Error(`${eventId} の経路を読み取れません`);
+        const numberRaw = String(title.typhoonNumber || item.typhoonNumber || '');
+        const isTyphoon = /^\d{4}$/.test(numberRaw);
+        const label = isTyphoon ? `台風${Number(numberRaw.slice(-2))}号` : `熱帯低気圧${numberRaw}`;
+        const name = title.name?.jp || title.name?.ja || title.name?.en || '';
+        const pressure = obs.pressure ?? '--';
+        const sustained = obs.maximumWind?.sustained?.['m/s'] ?? '--';
+        const gust = obs.maximumWind?.gust?.['m/s'] ?? '--';
+        const speed = obs.speed?.['km/h'] != null ? `${obs.speed['km/h']}km/h` : (obs.speed?.note?.jp || '--');
+        const intensity = obs.intensity && obs.intensity !== '-' ? `（${obs.intensity}）` : '';
+        // 実況から先の予報中心線のみを直線で結んだ参考値。
         const cpa = findClosestApproach(points, SAGA_OFFICE);
-        let cpaHtml = '';
-        if (cpa && cpa.time) {
-          const near = cpa.dist < 300;
-          cpaHtml = `<div style="margin-top:6px;padding:6px 8px;border-radius:8px;background:${near?'rgba(239,68,68,0.1)':'rgba(37,99,235,0.08)'};font-size:0.72rem;color:${near?'#b91c1c':'#1e40af'}">
-            🎯 佐賀県庁 最接近予想: ${fmtDateTime(cpa.time)} 頃 / 約${Math.round(cpa.dist)}km
-          </div>`;
-        }
-
+        const cpaHtml = cpa?.time ? `<div style="margin-top:6px;padding:6px 8px;border-radius:8px;background:rgba(37,99,235,0.08);font-size:0.72rem;color:#1e40af">🎯 佐賀県庁への予報中心線の最接近（参考）: ${fmtDateTime(cpa.time)} 頃 / 約${Math.round(cpa.dist)}km</div>` : '';
         h += `<div style="padding:10px;border-radius:10px;margin-bottom:8px;background:rgba(239,68,68,0.05);border:1px solid rgba(239,68,68,0.15)">
-          <div style="font-weight:700;font-size:0.88rem;color:#ef4444;margin-bottom:6px">🌀 台風${number}号 ${name}${intensity}</div>
+          <div style="font-weight:700;font-size:0.88rem;color:#ef4444;margin-bottom:6px">🌀 ${label} ${name}${intensity}</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:0.72rem;color:#475569">
-            <span>📍 ${location}</span>
-            <span>🔵 ${pressure}hPa</span>
-            <span>💨 最大風速 ${sustained}m/s（瞬間${gust}m/s）</span>
-            <span>➡️ ${course} ${speed}km/h</span>
-          </div>
-          ${cpaHtml}
-        </div>`;
-
-        // 4) 地図に経路を描画
-        const color = TYPHOON_COLORS[colorIdx % TYPHOON_COLORS.length];
-        colorIdx++;
-        const latlngs = points.map(p => [p.lat, p.lon]);
-        if (latlngs.length >= 2) {
-          L.polyline(latlngs, { color, weight: 2.5, dashArray: '6,5', opacity: 0.85 }).addTo(window._typhoonLayerGroup);
-        }
+            <span>📍 ${obs.location || '--'}</span><span>🔵 ${pressure}hPa</span>
+            <span>💨 最大風速 ${sustained}m/s（瞬間${gust}m/s）</span><span>➡️ ${obs.course || '--'} ${speed}</span>
+          </div>${cpaHtml}</div>`;
+        const color = TYPHOON_COLORS[index % TYPHOON_COLORS.length];
+        if (points.length > 1) L.polyline(points.map(p=>[p.lat,p.lon]), {color,weight:2.5,dashArray:'6,5',opacity:0.85}).addTo(nextLayer);
         points.forEach(p => {
-          const isCurrent = p.label === '実況';
-          L.circleMarker([p.lat, p.lon], {
-            radius: isCurrent ? 7 : 5,
-            color, weight: 2,
-            fillColor: isCurrent ? color : '#fff',
-            fillOpacity: isCurrent ? 0.9 : 0.7
-          }).bindPopup(`<b>${name}</b><br>${p.label || '予報'}<br>${fmtDateTime(p.time)}<br>${p.pressure ?? '--'}hPa`)
-            .addTo(window._typhoonLayerGroup);
+          const current = p.label === '実況';
+          L.circleMarker([p.lat,p.lon], {radius:current?7:5,color,weight:2,fillColor:current?color:'#fff',fillOpacity:current?0.9:0.7})
+            .bindPopup(`<b>${label} ${name}</b><br>${p.label}<br>${fmtDateTime(p.time)}<br>${p.pressure??'--'}hPa`).addTo(nextLayer);
         });
-
-        // 5) 最接近点を地図上にも表示（佐賀県庁までの破線つき）
         if (cpa) {
-          L.polyline([[cpa.lat, cpa.lon], [SAGA_OFFICE.lat, SAGA_OFFICE.lon]], {
-            color, weight: 1.5, dashArray: '2,4', opacity: 0.7
-          }).addTo(window._typhoonLayerGroup);
-          L.circleMarker([cpa.lat, cpa.lon], { radius: 4, color: '#fff', weight: 1, fillColor: color, fillOpacity: 1 })
-            .bindPopup(`最接近点<br>${cpa.time ? fmtDateTime(cpa.time) : ''}<br>約${Math.round(cpa.dist)}km`)
-            .addTo(window._typhoonLayerGroup);
+          L.polyline([[cpa.lat,cpa.lon],[SAGA_OFFICE.lat,SAGA_OFFICE.lon]], {color,weight:1.5,dashArray:'2,4',opacity:0.7}).addTo(nextLayer);
+          L.circleMarker([cpa.lat,cpa.lon], {radius:4,color:'#fff',weight:1,fillColor:color,fillOpacity:1})
+            .bindPopup(`予報中心線の最接近点<br>${cpa.time?fmtDateTime(cpa.time):''}<br>約${Math.round(cpa.dist)}km`).addTo(nextLayer);
         }
-      } catch (innerErr) {
-        console.error('Typhoon spec error:', innerErr);
+      } catch(innerErr) {
+        failures++;
+        console.error('Typhoon detail:',innerErr);
       }
     }
-
-    panel.innerHTML = h || '<div style="color:#10b981;font-size:0.8rem;text-align:center;padding:16px">✅ 現在、台風情報はありません</div>';
+    if (h) {
+      window._typhoonLayerGroup.clearLayers();
+      nextLayer.eachLayer(layer=>window._typhoonLayerGroup.addLayer(layer));
+    }
+    panel.innerHTML = (h || '<div style="color:#b91c1c;padding:12px">台風情報を読み取れませんでした。気象庁の公式情報をご確認ください。</div>')
+      + (failures && h ? `<div style="color:#b91c1c;font-size:0.72rem;padding:8px">${failures}件の台風情報を取得できませんでした。</div>` : '');
   } catch(e) {
-    console.error('Typhoon:', e);
-    panel.innerHTML = '<div style="color:#10b981;font-size:0.8rem;text-align:center;padding:16px">✅ 現在、台風情報はありません</div>';
+    console.error('Typhoon:',e);
+    panel.innerHTML = '<div style="color:#b91c1c;padding:12px">台風情報を取得できませんでした。気象庁の公式情報をご確認ください。</div>';
   }
 }
 
