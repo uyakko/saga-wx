@@ -297,6 +297,23 @@ body {
 .pp-rain { width: 50px; text-align: center; color: var(--accent); }
 .pp-wind { flex: 1; text-align: right; color: var(--text-sub); }
 
+/* ===== BALLOON FLIGHT WEATHER ===== */
+.balloon-card { margin:0 0 12px; padding:12px; border-radius:12px;
+  background:rgba(248,250,252,.95); border:1px solid #cbd5e1; }
+.balloon-head { font-size:.85rem; font-weight:700; color:#1e293b; margin-bottom:5px; }
+.balloon-note { font-size:.67rem; color:#64748b; line-height:1.45; margin-bottom:8px; }
+.balloon-sessions { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.balloon-session { min-width:0; border:1px solid #cbd5e1; background:white;
+  border-radius:10px; padding:8px; font-size:.7rem; line-height:1.45; }
+.balloon-session.caution { border-color:#f59e0b; background:#fffbeb; }
+.balloon-session.unknown { border-color:#94a3b8; background:#f8fafc; }
+.balloon-session.favorable { border-color:#10b981; background:#ecfdf5; }
+.balloon-status { font-size:.78rem; font-weight:700; margin:3px 0 5px; }
+.balloon-metric { overflow-wrap:anywhere; margin-top:3px; }
+.balloon-metric.flag { color:#b45309; font-weight:700; }
+.balloon-official { margin-top:9px; font-size:.7rem; }
+.balloon-official a { font-weight:700; color:#1d4ed8; }
+
 /* ===== LOADING ===== */
 .loading {
   display: flex; align-items: center; justify-content: center;
@@ -664,7 +681,7 @@ function updateMarkers() {
     else { val=rain!=null?(rain>0?`${rain}`:'0'):'--'; cls=rain>10?'hot':rain>0?'rain':'normal'; }
 
     const icon=L.divIcon({className:'marker-icon',
-      html:`<div class="location-pin pin-amedas"><span class="pin-name">${st.name}</span><span class="pin-value">${val}${val==='--'?'':currentDisplay==='wind'?' m/s':currentDisplay==='rain'?' mm':''}</span></div>`,
+      html:`<div class="location-pin pin-amedas"><span class="pin-icon">🌡️</span><span class="pin-name">${st.name}</span><span class="pin-value">${val}${val==='--'?'':currentDisplay==='wind'?' m/s':currentDisplay==='rain'?' mm':''}</span></div>`,
       iconSize:[0,0],iconAnchor:[0,0]});
     const m=L.marker([st.lat,st.lon],{icon,zIndexOffset:100}).addTo(map);
 
@@ -736,23 +753,94 @@ function showSpotDetail(stationId, station, amedasObs) {
 
   panel.innerHTML = h;
   panel.scrollIntoView({behavior:'smooth', block:'start'});
-  loadSpotForecast(uid, station.lat, station.lon);
+  loadSpotForecast(uid, station.lat, station.lon, stationId === 'usr_balloon');
 }
 
-async function loadSpotForecast(containerId, lat, lon) {
-  var container = document.getElementById(containerId);
+async function loadSpotForecast(containerId, lat, lon, balloon = false) {
+  const container = document.getElementById(containerId);
   if (!container) return;
-  try {
-    var url = 'https://api.open-meteo.com/v1/jma?latitude=' + lat + '&longitude=' + lon
-      + '&hourly=temperature_2m,precipitation,weather_code,wind_speed_10m,wind_direction_10m'
-      + '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum'
-      + '&wind_speed_unit=ms&timezone=Asia/Tokyo&forecast_days=7';
-    var r = await fetch(url);
-    var data = await r.json();
-    container.innerHTML = buildForecastHtml(data);
-  } catch(e) {
-    container.innerHTML = '<div style="color:#ef4444;font-size:0.75rem;padding:8px">予報の取得に失敗しました</div>';
+  let url = 'https://api.open-meteo.com/v1/jma?latitude=' + lat + '&longitude=' + lon
+    + '&hourly=temperature_2m,precipitation,weather_code,wind_speed_10m,wind_direction_10m';
+  if (balloon) url += ',wind_direction_1000hPa,wind_direction_975hPa,geopotential_height_1000hPa,geopotential_height_975hPa';
+  url += '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum'
+    + '&wind_speed_unit=ms&timezone=Asia/Tokyo&forecast_days=7';
+  const modelRequest = fetch(url).then(r=>{if(!r.ok)throw Error(`モデル HTTP ${r.status}`);return r.json();});
+  const rainRequest = balloon ? fetch(`https://www.jma.go.jp/bosai/forecast/data/forecast/${SAGA_CODE}.json`)
+    .then(r=>{if(!r.ok)throw Error(`気象庁 HTTP ${r.status}`);return r.json();}) : Promise.resolve(null);
+  const [modelResult, rainResult] = await Promise.allSettled([modelRequest,rainRequest]);
+  if (document.getElementById(containerId) !== container) return;
+  const model = modelResult.status === 'fulfilled' ? modelResult.value : null;
+  const jma = rainResult.status === 'fulfilled' ? rainResult.value : null;
+  if (modelResult.status === 'rejected') console.error('Spot model:',modelResult.reason);
+  if (rainResult.status === 'rejected') console.error('JMA PoP:',rainResult.reason);
+  container.innerHTML = (balloon ? buildBalloonCard(model,jma) : '') +
+    (model ? buildForecastHtml(model) : '<div style="color:#ef4444;font-size:0.75rem;padding:8px">地点予報の取得に失敗しました</div>');
+}
+
+function balloonPoP(jma, dateKey, startHour) {
+  const series = jma?.[0]?.timeSeries?.find(ts => ts.areas?.some(a => Array.isArray(a.pops)));
+  const area = series?.areas?.find(a => a.area?.name === '南部');
+  const index = series?.timeDefines?.findIndex(t => t.slice(0,10) === dateKey && Number(t.slice(11,13)) === startHour);
+  if (!area || index == null || index < 0) return null;
+  const value = Number(area.pops?.[index]);
+  return Number.isFinite(value) && area.pops?.[index] !== '' ? value : null;
+}
+
+function balloonUpperWind(hourly, i, elevation) {
+  if (!Number.isFinite(Number(elevation))) return [];
+  const samples = [];
+  for (const pressure of [1000,975]) {
+    const height = Number(hourly[`geopotential_height_${pressure}hPa`]?.[i]);
+    const dir = Number(hourly[`wind_direction_${pressure}hPa`]?.[i]);
+    const agl = height - Number(elevation);
+    if (hourly[`geopotential_height_${pressure}hPa`]?.[i] != null &&
+        hourly[`wind_direction_${pressure}hPa`]?.[i] != null &&
+        Number.isFinite(agl) && Number.isFinite(dir) && agl >= 100 && agl <= 300) {
+      samples.push({height:Math.round(agl),direction:((dir%360)+360)%360});
+    }
   }
+  return samples;
+}
+
+function balloonSession(model, jma, dateKey, label, startHour, endHour, popStart) {
+  const pop = balloonPoP(jma,dateKey,popStart);
+  const hr = model?.hourly;
+  const indices = (hr?.time || []).map((t,i)=>({t,i}))
+    .filter(({t})=>t.slice(0,10)===dateKey && Number(t.slice(11,13))>=startHour && Number(t.slice(11,13))<=endHour)
+    .map(({i})=>i);
+  const speedLimit = 5 * 0.514444; // 5 kt -> m/s
+  const speeds = indices.map(i=>hr?.wind_speed_10m?.[i]).filter(v=>v!=null && Number.isFinite(Number(v))).map(Number);
+  const rain = indices.map(i=>hr?.precipitation?.[i]).filter(v=>v!=null && Number.isFinite(Number(v))).map(Number);
+  const upperByHour = indices.map(i=>balloonUpperWind(hr,i,model?.elevation));
+  const upper = upperByHour.flat();
+  const peak = speeds.length ? Math.max(...speeds) : null;
+  const peakRain = rain.length ? Math.max(...rain) : null;
+  const riskyUpper = upper.find(x=>x.direction>=315 || x.direction<=45);
+  const flags = [pop!=null && pop>=30, peakRain!=null && peakRain>=0.1,
+    peak!=null && peak>=speedLimit, Boolean(riskyUpper)];
+  const missing = pop==null || indices.length < endHour-startHour+1 ||
+    speeds.length < indices.length || rain.length < indices.length || upperByHour.some(x=>!x.length);
+  const type = flags.some(Boolean) ? 'caution' : missing ? 'unknown' : 'favorable';
+  const status = type==='caution' ? '🟠 気象条件に注意' : type==='unknown' ? '⚪ 一部判定保留' : '🟢 懸念は小さめ';
+  const directionText = !upper.length ? '--' : riskyUpper ?
+    `${compass16(riskyUpper.direction)} ${Math.round(riskyUpper.direction)}°（地上${riskyUpper.height}m）` :
+    upper.map(x=>compass16(x.direction)).filter((v,i,a)=>a.indexOf(v)===i).join('・');
+  return `<div class="balloon-session ${type}"><strong>${label} ${String(startHour).padStart(2,'0')}:00–${String(endHour).padStart(2,'0')}:00</strong>
+    <div class="balloon-status">${status}</div>
+    <div class="balloon-metric ${flags[0]?'flag':''}">☔ 降水確率 ${pop==null?'--':pop+'%'}（${String(popStart).padStart(2,'0')}–${String(popStart+6).padStart(2,'0')}時）</div>
+    <div class="balloon-metric ${flags[1]?'flag':''}">🌧️ 予想降水 最大 ${peakRain==null?'--':peakRain.toFixed(1)+'mm/h'}</div>
+    <div class="balloon-metric ${flags[2]?'flag':''}">💨 地上風 最大 ${peak==null?'--':peak.toFixed(1)+'m/s（'+(peak/0.514444).toFixed(1)+'kt）'}</div>
+    <div class="balloon-metric ${flags[3]?'flag':''}">🧭 上空風向 ${directionText}</div></div>`;
+}
+
+function buildBalloonCard(model,jma) {
+  const now = new Date(), key = new Intl.DateTimeFormat('en-CA',
+    {timeZone:'Asia/Tokyo',year:'numeric',month:'2-digit',day:'2-digit'}).format(now);
+  return `<div class="balloon-card"><div class="balloon-head">🎈 本日 ${formatJstMD(now)} の飛行向け気象条件</div>
+    <div class="balloon-note">目安: 降水確率30%以上・予想降水0.1mm/h以上・地上風5kt以上・地上100～300mの北西～北東風。数値は飛行可否の決定ではありません。</div>
+    <div class="balloon-sessions">${balloonSession(model,jma,key,'午前',7,9,6)}${balloonSession(model,jma,key,'午後',15,17,12)}</div>
+    <div class="balloon-official">公式発表: <a href="https://www.sibf.jp/" target="_blank" rel="noopener noreferrer">大会サイトの最新情報で確認 ↗</a></div>
+    <div class="balloon-note" style="margin:7px 0 0">降水確率は佐賀県南部の6時間予報、風は会場のモデル予報です。上空風向は気圧面の高度を地上高に換算して判定。</div></div>`;
 }
 
 function showPinpointDetail(lat, lng) {
