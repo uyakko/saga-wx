@@ -181,13 +181,13 @@ body {
 }
 .cond-item {
   background: rgba(255,255,255,0.5); border-radius: 12px;
-  padding: 10px; text-align: center;
+  padding: 10px 5px; text-align: center;
   border: 1px solid rgba(255,255,255,0.6);
   transition: transform 0.2s;
 }
 .cond-item:hover { transform: translateY(-2px); }
 .cond-label { font-size: 0.65rem; color: var(--text-sub); margin-bottom: 2px; }
-.cond-value { font-size: 1.15rem; font-weight: 700; }
+.cond-value { font-size: 1rem; font-weight: 700; margin-left:4px; white-space:nowrap; }
 .cond-icon { font-size: 1.2rem; margin-bottom: 2px; }
 
 .stations-summary {
@@ -313,7 +313,7 @@ body {
 .marker-icon { background: transparent; border: 0; }
 .location-pin {
   display:flex; flex-direction:column; align-items:center;
-  width:max-content; min-width:62px; max-width:102px;
+  width:max-content; min-width:62px; max-width:146px; box-sizing:border-box;
   padding:5px 7px 6px; border:2px solid #fff; border-radius:12px;
   color:#fff; font-weight:700; font-size:0.71rem; line-height:1.15;
   text-align:center; box-shadow:0 3px 12px rgba(15,23,42,.45);
@@ -331,7 +331,8 @@ body {
 .pin-office { background:#a25213; }
 .pin-selected { background:#08775d; }
 .pin-icon { font-size:1.05rem; line-height:1.1; }
-.pin-name { white-space:nowrap; }
+.pin-name { white-space:normal; overflow-wrap:anywhere; line-break:strict; min-width:0; max-width:100%; }
+.pin-venue { width:136px; }
 .pin-value { font-size:.77rem; white-space:nowrap; margin-top:2px; }
 .marker-key {
   position:absolute; top:12px; left:12px; z-index:1000;
@@ -454,13 +455,13 @@ const SAGA_CENTER = [33.26, 130.10];
 const SAGA_CODE = '410000';
 
 const STATIONS = {
-  '85142':{name:'佐賀',lat:33.265,lon:130.305},
-  '85033':{name:'唐津',lat:33.458,lon:129.955},
-  '85116':{name:'伊万里',lat:33.267,lon:129.878},
-  '85161':{name:'嬉野',lat:33.117,lon:129.995},
-  '85166':{name:'白石',lat:33.183,lon:130.148},
-  '85176':{name:'川副',lat:33.148,lon:130.302},
-  '85046':{name:'北山',lat:33.413,lon:130.220},
+  '85142':{name:'佐賀',lat:33.265,lon:130.305,forecastArea:'南部'},
+  '85033':{name:'唐津',lat:33.458,lon:129.955,forecastArea:'北部'},
+  '85116':{name:'伊万里',lat:33.267,lon:129.878,forecastArea:'北部'},
+  '85161':{name:'嬉野',forecastArea:'南部',lat:33.117,lon:129.995},
+  '85166':{name:'白石',forecastArea:'南部',lat:33.183,lon:130.148},
+  '85176':{name:'川副',forecastArea:'南部',lat:33.148,lon:130.302},
+  '85046':{name:'北山',lat:33.413,lon:130.220,forecastArea:'南部',rainOnly:true},
 };
 
 const USER_SPOTS = {
@@ -545,7 +546,7 @@ function initMap() {
   // 最接近の基準点を他の指定地点と区別する
   L.marker([SAGA_OFFICE.lat, SAGA_OFFICE.lon], {
     icon: L.divIcon({className:'marker-icon', html:'<div class="location-pin pin-office"><span class="pin-icon">🏛️</span><span class="pin-name">佐賀県庁</span></div>',iconSize:[0,0],iconAnchor:[0,0]})
-  }).addTo(map).bindPopup('佐賀県庁（台風最接近の計算基準）');
+  }).addTo(map).bindPopup('佐賀県庁');
 
   // クリックでピンポイント予報
 map.on('click', function(e) {
@@ -640,12 +641,13 @@ function updateMarkers() {
           hum=d.humidity?d.humidity[0]:null;
 
     let val,cls;
-    if (currentDisplay==='temp') { val=temp!=null?`${temp}°`:'--'; cls=getColor(temp); }
+    if (st.rainOnly) { val=rain!=null?`${rain}`:'--'; cls=rain>10?'hot':rain>0?'rain':'normal'; }
+    else if (currentDisplay==='temp') { val=temp!=null?`${temp}°`:'--'; cls=getColor(temp); }
     else if (currentDisplay==='wind') { val=wind!=null?`${wind}`:'--'; cls=wind>=10?'hot':wind>=5?'rain':'normal'; }
     else { val=rain!=null?(rain>0?`${rain}`:'0'):'--'; cls=rain>10?'hot':rain>0?'rain':'normal'; }
 
     const icon=L.divIcon({className:'marker-icon',
-      html:`<div class="location-pin pin-amedas"><span class="pin-icon">🌡️</span><span class="pin-name">${st.name}</span><span class="pin-value">${val}${currentDisplay==='temp'?'':currentDisplay==='wind'&&val!=='--'?' m/s':currentDisplay==='rain'&&val!=='--'?' mm':''}</span></div>`,
+      html:`<div class="location-pin pin-amedas"><span class="pin-icon">${st.rainOnly?'🌧️':'🌡️'}</span><span class="pin-name">${st.name}${st.rainOnly?'（雨量のみ）':''}</span><span class="pin-value">${val}${val==='--'?'':st.rainOnly?' mm':currentDisplay==='wind'?' m/s':currentDisplay==='rain'?' mm':''}</span></div>`,
       iconSize:[0,0],iconAnchor:[0,0]});
     const m=L.marker([st.lat,st.lon],{icon,zIndexOffset:100}).addTo(map);
 
@@ -686,7 +688,7 @@ function showSpotDetail(stationId, station, amedasObs) {
 
   var isUser = station.type === 'user';
   var badge = isUser
-    ? '<span style="background:#8b5cf6;color:#fff;font-size:0.6rem;padding:1px 6px;border-radius:8px;margin-left:6px">ユーザー</span>'
+    ? '<span style="background:#8b5cf6;color:#fff;font-size:0.6rem;padding:1px 6px;border-radius:8px;margin-left:6px">特定地点</span>'
     : '<span style="background:#2563eb;color:#fff;font-size:0.6rem;padding:1px 6px;border-radius:8px;margin-left:6px">AMeDAS</span>';
 
   var h = '<div style="margin-bottom:10px">';
@@ -694,18 +696,22 @@ function showSpotDetail(stationId, station, amedasObs) {
   h += '<div style="font-size:0.68rem;color:#94a3b8">' + station.lat.toFixed(4) + ', ' + station.lon.toFixed(4) + '</div>';
   h += '</div>';
 
+  if (station.rainOnly) h += '<div style="font-size:0.7rem;color:#64748b;margin-bottom:8px">この観測所は降水量のみ観測しています。</div>';
+
   if (amedasObs) {
     var items = [
-      {icon:'🌡️',label:'気温',value:amedasObs.temp?amedasObs.temp[0]+'℃':'--'},
-      {icon:'💧',label:'湿度',value:amedasObs.humidity?amedasObs.humidity[0]+'%':'--'},
-      {icon:'💨',label:'風速',value:amedasObs.wind?amedasObs.wind[0]+'m/s':'--'},
-      {icon:'🧭',label:'風向',value:amedasObs.windDirection?windText(amedasObs.windDirection[0]):'--'},
-      {icon:'☔',label:'1h降水',value:amedasObs.precipitation1h?amedasObs.precipitation1h[0]+'mm':'--'},
-      {icon:'📊',label:'気圧',value:amedasObs.normalPressure?amedasObs.normalPressure[0]+'hPa':'--'},
+      {icon:'🌡️',label:'気温',value:amedasObs.temp?.[0]!=null?amedasObs.temp[0]+'℃':'--'},
+      {icon:'💧',label:'湿度',value:amedasObs.humidity?.[0]!=null?amedasObs.humidity[0]+'%':'--'},
+      {icon:'💨',label:'風速',value:amedasObs.wind?.[0]!=null?amedasObs.wind[0]+'m/s':'--'},
+      {icon:'🧭',label:'風向',value:amedasObs.windDirection?.[0]!=null?windText(amedasObs.windDirection[0]):'--'},
+      {icon:'☔',label:'1h降水',value:amedasObs.precipitation1h?.[0]!=null?amedasObs.precipitation1h[0]+'mm':'--'},
+      {icon:'📊',label:'気圧',value:amedasObs.normalPressure?.[0]!=null?amedasObs.normalPressure[0]+'hPa':'--'},
     ];
+    if (station.rainOnly) items.splice(0,4);
+    if (station.rainOnly) items.pop();
     h += '<div class="conditions-grid">';
     items.forEach(function(i) {
-      h += '<div class="cond-item"><span class="cond-icon">' + i.icon + '</span><span class="cond-label">' + i.label + '</span><span class="cond-value">' + i.value + '</span></div>';
+      h += '<div class="cond-item"><span class="cond-icon">' + i.icon + '</span><span class="cond-label">' + i.label + '</span> <span class="cond-value">' + i.value + '</span></div>';
     });
     h += '</div>';
   }
@@ -717,7 +723,37 @@ function showSpotDetail(stationId, station, amedasObs) {
 
   panel.innerHTML = h;
   panel.scrollIntoView({behavior:'smooth', block:'start'});
-  loadSpotForecast(uid, station.lat, station.lon);
+  if (isUser) loadSpotForecast(uid, station.lat, station.lon);
+  else loadJmaAreaForecast(uid, station.forecastArea);
+}
+
+// アメダス地点には気象庁の一次細分区域の公式予報を表示する。
+// 観測所そのものの1時間刻みの予報ではないことを明示する。
+async function loadJmaAreaForecast(containerId, areaName) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  try {
+    const r = await fetch(`https://www.jma.go.jp/bosai/forecast/data/forecast/${SAGA_CODE}.json`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    const ts = data?.[0]?.timeSeries?.[0];
+    const area = ts?.areas?.find(a => a.area?.name === areaName);
+    if (!area || !Array.isArray(ts.timeDefines)) throw new Error('対象区域がありません');
+    let h = `<div style="font-size:0.72rem;font-weight:700;color:#334155;margin-bottom:5px">気象庁・佐賀県${areaName}の予報</div>
+      <div style="font-size:0.67rem;color:#64748b;margin-bottom:7px">観測所単独ではなく、${areaName}全域を対象とした予報です。</div>`;
+    ts.timeDefines.forEach((t,i) => {
+      const d = new Date(t);
+      const label = new Intl.DateTimeFormat('ja-JP',{timeZone:'Asia/Tokyo',month:'numeric',day:'numeric',weekday:'short'}).format(d);
+      const weather = String(area.weathers?.[i] || '--').replace(/[\s\u3000]+/g,'');
+      const code = area.weatherCodes?.[i];
+      h += `<div class="fc-row"><div class="fc-date">${label}</div><div class="fc-icon">${code?`<img src="https://www.jma.go.jp/bosai/forecast/img/${code}.svg" onerror="this.style.display='none'">`:''}</div><div class="fc-desc">${weather}</div></div>`;
+    });
+    h += '<div style="text-align:right;font-size:0.65rem;margin-top:6px"><a href="https://www.jma.go.jp/bosai/forecast/#area_type=offices&area_code=410000" target="_blank" rel="noopener noreferrer">気象庁の予報を開く ↗</a></div>';
+    if (document.getElementById(containerId) === container) container.innerHTML = h;
+  } catch(e) {
+    console.error('JMA area forecast:',e);
+    if (document.getElementById(containerId) === container) container.innerHTML = '<div style="color:#ef4444;font-size:0.75rem;padding:8px">気象庁の区域予報を取得できませんでした</div>';
+  }
 }
 
 async function loadSpotForecast(containerId, lat, lon) {
@@ -771,7 +807,7 @@ async function loadForecast() {
 
 function renderToday(data) {
   if (!data||!data[0]) return;
-  const ts=data[0], wTS=ts.timeSeries[0], pTS=ts.timeSeries[1], tTS=ts.timeSeries[2];
+  const ts=data[0], wTS=ts.timeSeries[0], pTS=ts.timeSeries[1];
   let h='';
   wTS.areas.forEach(area=>{
     h+=`<div style="margin-bottom:14px"><div class="fc-area-title">📍 ${area.area.name}</div>`;
@@ -782,18 +818,10 @@ function renderToday(data) {
       const wx=area.weathers?area.weathers[i]:'';
       let pop='--';
       if(pTS&&pTS.areas){const pa=pTS.areas.find(a=>a.area.code===area.area.code);if(pa&&pa.pops&&pa.pops[i])pop=pa.pops[i];}
-      h+=`<div class="fc-row"><div class="fc-date">${ds}</div><div class="fc-icon"><img src="https://www.jma.go.jp/bosai/forecast/img/${code}.svg" onerror="this.style.display='none'"></div><div class="fc-desc">${wx?wx.substring(0,22):''}</div><div class="fc-pop">${pop!=='--'?pop+'%':'--'}</div></div>`;
+      h+=`<div class="fc-row"><div class="fc-date">${ds}</div><div class="fc-icon"><img src="https://www.jma.go.jp/bosai/forecast/img/${code}.svg" onerror="this.style.display='none'"></div><div class="fc-desc">${wx?wx.replace(/[\s\u3000]+/g,'').substring(0,22):''}</div><div class="fc-pop">${pop!=='--'?pop+'%':'--'}</div></div>`;
     });
     h+='</div>';
   });
-  if(tTS&&tTS.areas){
-    h+='<div style="border-top:1px solid rgba(0,0,0,0.06);padding-top:8px;margin-top:4px"><div style="font-weight:700;font-size:0.8rem;margin-bottom:4px">🌡️ 気温予報</div>';
-    tTS.areas.forEach(a=>{
-      const t=a.temps||[];
-      h+=`<div class="fc-temp-row">${a.area.name}: <span class="temp-low">${t[0]||'--'}℃</span> / <span class="temp-high">${t[1]||'--'}℃</span></div>`;
-    });
-    h+='</div>';
-  }
   document.getElementById('tabToday').innerHTML=h||'<div style="color:#94a3b8">予報データなし</div>';
 }
 
