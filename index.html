@@ -466,7 +466,7 @@ body {
 </div>
 
 <div class="footer">
-  データ提供: 気象庁 (JMA) ・ Open-Meteo JMA API ｜ 地図: 国土地理院 ｜ ※ 本サイトは防災情報の参考としてご利用ください。正確な情報は気象庁公式サイトをご確認ください。
+  データ提供：気象庁 (JMA) ・ Open-Meteo JMA API ｜ 地図: 国土地理院 ｜ ※ 本サイトは参考としてご利用ください。正確な情報は気象庁公式サイトをご確認ください。
 </div>
 
 <script>
@@ -686,7 +686,7 @@ function updateMarkers() {
     else { val=rain!=null?(rain>0?`${rain}`:'0'):'--'; cls=rain>10?'hot':rain>0?'rain':'normal'; }
 
     const icon=L.divIcon({className:'marker-icon',
-      html:`<div class="location-pin pin-amedas"><span class="pin-icon">🌡️</span><span class="pin-name">${st.name}</span><span class="pin-value">${val}${val==='--'?'':currentDisplay==='wind'?' m/s':currentDisplay==='rain'?' mm':''}</span></div>`,
+      html:`<div class="location-pin pin-amedas"><span class="pin-name">${st.name}</span><span class="pin-value">${val}${val==='--'?'':currentDisplay==='wind'?' m/s':currentDisplay==='rain'?' mm':''}</span></div>`,
       iconSize:[0,0],iconAnchor:[0,0]});
     const m=L.marker([st.lat,st.lon],{icon,zIndexOffset:100}).addTo(map);
 
@@ -853,10 +853,9 @@ function buildBalloonCard(model,jma) {
   };
   return `<div class="balloon-card"><div class="balloon-head">🎈 飛行向け気象条件</div>
     <div class="balloon-days">${[0,1].map(day=>`<button type="button" class="balloon-day-button" data-balloon-day="${day}" aria-pressed="${day===selected}" onclick="switchBalloonDay(this)">${day===0?'本日':'明日'} ${formatJstMD(new Date(now.getTime()+day*86400000))}</button>`).join('')}</div>
-    <div class="balloon-note">目安: 降水確率30%以上・予想降水0.1mm/h以上・地上風5kt以上・地上100～300mの北西～北東風。数値は飛行可否の決定ではありません。</div>
+    <div class="balloon-note">※ あくまで目安です。</div>
     ${dayPanel(0)}${dayPanel(1)}
-    <div class="balloon-official">公式発表: <a href="https://www.sibf.jp/" target="_blank" rel="noopener noreferrer">大会サイトの最新情報で確認 ↗</a></div>
-    <div class="balloon-note" style="margin:7px 0 0">降水確率は佐賀県南部の6時間予報、風は会場のモデル予報です。上空風向は気圧面の高度を地上高に換算して判定。</div></div>`;
+    <div class="balloon-official">公式発表: <a href="https://www.sibf.jp/" target="_blank" rel="noopener noreferrer">大会サイトの最新情報で確認 ↗</a></div></div>`;
 }
 
 function switchBalloonDay(button) {
