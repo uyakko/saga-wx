@@ -794,6 +794,7 @@ function balloonPoP(jma, dateKey, startHour) {
 
 function balloonSession(model, jma, dateKey, label, startHour, endHour, popStart) {
   const pop = balloonPoP(jma,dateKey,popStart);
+  const popForAssessment = pop ?? 0;
   const hr = model?.hourly;
   const indices = (hr?.time || []).map((t,i)=>({t,i}))
     .filter(({t})=>t.slice(0,10)===dateKey && Number(t.slice(11,13))>=startHour && Number(t.slice(11,13))<=endHour)
@@ -803,9 +804,9 @@ function balloonSession(model, jma, dateKey, label, startHour, endHour, popStart
   const rain = indices.map(i=>hr?.precipitation?.[i]).filter(v=>v!=null && Number.isFinite(Number(v))).map(Number);
   const peak = speeds.length ? Math.max(...speeds) : null;
   const peakRain = rain.length ? Math.max(...rain) : null;
-  const flags = [pop!=null && pop>=30, peakRain!=null && peakRain>=0.1,
+  const flags = [popForAssessment>=30, peakRain!=null && peakRain>=0.1,
     peak!=null && peak>=speedLimit];
-  const missing = pop==null || indices.length < endHour-startHour+1 ||
+  const missing = indices.length < endHour-startHour+1 ||
     speeds.length < indices.length || rain.length < indices.length;
   const type = flags.some(Boolean) ? 'caution' : missing ? 'unknown' : 'favorable';
   const status = type==='caution' ? '🟠 気象条件に注意' : type==='unknown' ? '⚪ 一部判定保留' : '🟢 懸念は小さめ';
